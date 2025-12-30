@@ -35,15 +35,16 @@ enum ValidationDecision {
   NEEDS_REVIEW
 }
 
+// User Model Schema
 model User {
   id           String   @id @default(uuid())
   name         String
   email        String   @unique
   password     String
-  number       Int
+  number       String?
   role         UserRole @default(CITIZEN)
   isVerified   Boolean  @default(false)
-  refreshToken String
+  refreshToken String?
 
   reports       Report[]
   notifications Notification[]
@@ -54,58 +55,35 @@ model User {
   updatedAt DateTime @updatedAt
 }
 
-model Comment {
-  id      String @id @default(uuid())
-  content String
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  reportId String
-  report   Report @relation(fields: [reportId], references: [id])
-
-  postedAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([reportId])
-}
-
-model Vote {
-  id    String @id @default(uuid())
-  value Int // +1 or -1
-
-  userId   String
-  reportId String
-
-  user   User   @relation(fields: [userId], references: [id])
-  report Report @relation(fields: [reportId], references: [id])
-
-  @@unique([userId, reportId])
-  @@index([reportId])
-}
-
+// Report Model Schema
 model Report {
   id          String       @id @default(uuid())
   title       String
   description String
   type        DisasterType @default(FLOOD)
-  latitude    Float
-  longitude   Float
-  status      ReportStatus @default(PENDING)
+
+  latitude     Float
+  longitude    Float
+  locationName String?
+
+  status ReportStatus @default(PENDING)
 
   comments Comment[]
   vote     Vote[]
 
   validationResult ValidationResult?
-
-  userId String // Foreign Key
-  user   User   @relation(fields: [userId], references: [id])
-
   votesCount Int @default(0)
 
+  userId String // Foreign Key
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([latitude, longitude])
 }
 
+// Notification Schema
 model Notification {
   id      String @id @default(uuid())
   title   String
@@ -114,18 +92,19 @@ model Notification {
   type NotificationType
 
   userId String
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
   @@index([userId])
 }
 
+// Validation Result Schema
 model ValidationResult {
   id String @id @default(uuid())
 
   reportId String @unique
-  report   Report @relation(fields: [reportId], references: [id])
+  report   Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   weatherMatch    Boolean
   newsMatch       Boolean
@@ -135,4 +114,37 @@ model ValidationResult {
   details  Json?
 
   validatedAt DateTime @default(now())
+}
+
+// Comment Model Schema
+model Comment {
+  id      String @id @default(uuid())
+  content String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  reportId String
+  report   Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  postedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([reportId])
+}
+
+// Vote Model Schema
+model Vote {
+  id    String @id @default(uuid())
+  value Int // +1 or -1
+
+  userId   String
+  reportId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reportId])
+  @@index([reportId])
 }

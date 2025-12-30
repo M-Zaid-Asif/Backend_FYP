@@ -8,6 +8,21 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
+// Connection logic
+async function connectDB() {
+  try {
+    // Manually trigger the connection
+    await prisma.$connect();
+    console.log("✅ Database connection established successfully via Prisma.");
+  } catch (error) {
+    console.error("❌ Failed to connect to the database:");
+    console.error(error);
+    process.exit(1); // Stop the app if DB connection fails
+  }
+}
+
+connectDB();
+
 // 2. Disconnect Logic
 const gracefulShutdown = async (signal) => {
   console.log(`\nReceived ${signal}. Shutting down...`);

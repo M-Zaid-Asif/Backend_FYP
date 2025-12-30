@@ -1,15 +1,14 @@
 import express from 'express'
 import 'dotenv/config';
-import prisma from './constants/prisma.js'
+import userRouter from './router/userRouter.route.js'
 const app = express()
-const port = 8000
 
-app.get('/', async (req, res) => {
-  // Just to test if it works
-  const count = await prisma.user.count(); 
-  res.send(`User count: ${count}`);
-});
+app.use(express.json());
 
-app.listen(port, ()=>{
-    console.log(`Example app listening on port ${port}`)
+const PORT = process.env.PORT || 3000
+
+app.use("/users", userRouter);
+
+app.listen(PORT, ()=>{
+    console.log(`Example app listening on port ${PORT}`)
 })
