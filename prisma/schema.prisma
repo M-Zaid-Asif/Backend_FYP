@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CITIZEN
+  NGO
+}
+
+enum DisasterType {
+  FLOOD
+  EARTHQUAKE
+}
+
+enum ReportStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum NotificationType {
+  Alert
+  STATUS_UPDATE
+  SYSTEM
+}
+
+enum ValidationDecision {
+  VERIFIED
+  REJECTED
+  NEEDS_REVIEW
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  password     String
+  number       Int
+  role         UserRole @default(CITIZEN)
+  isVerified   Boolean  @default(false)
+  refreshToken String
+
+  reports       Report[]
+  notifications Notification[]
+  comments      Comment[]
+  vote          Vote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Comment {
+  id      String @id @default(uuid())
+  content String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  reportId String
+  report   Report @relation(fields: [reportId], references: [id])
+
+  postedAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([reportId])
+}
+
+model Vote {
+  id    String @id @default(uuid())
+  value Int // +1 or -1
+
+  userId   String
+  reportId String
+
+  user   User   @relation(fields: [userId], references: [id])
+  report Report @relation(fields: [reportId], references: [id])
+
+  @@unique([userId, reportId])
+  @@index([reportId])
+}
+
+model Report {
+  id          String       @id @default(uuid())
+  title       String
+  description String
+  type        DisasterType @default(FLOOD)
+  latitude    Float
+  longitude   Float
+  status      ReportStatus @default(PENDING)
+
+  comments Comment[]
+  vote     Vote[]
+
+  validationResult ValidationResult?
+
+  userId String // Foreign Key
+  user   User   @relation(fields: [userId], references: [id])
+
+  votesCount Int @default(0)
+
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id      String @id @default(uuid())
+  title   String
+  message String
+
+  type NotificationType
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ValidationResult {
+  id String @id @default(uuid())
+
+  reportId String @unique
+  report   Report @relation(fields: [reportId], references: [id])
+
+  weatherMatch    Boolean
+  newsMatch       Boolean
+  confidenceScore Float
+
+  decision ValidationDecision
+  details  Json?
+
+  validatedAt DateTime @default(now())
+}
