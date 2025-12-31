@@ -62,11 +62,15 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (existedUser) {
-    throw new ApiError(409, "User with this email or phone number already exists");
+    throw new ApiError(409, "User with this email already exists");
   }
 
   // 4. Hash the password
   // (Mongoose usually does this in a pre-save hook, but in Prisma we do it here)
+  if (password.length < 6) {
+    throw new ApiError(400, "Password must be at least 6 characters long");
+  }
+
   const hashedPassword = await bcrypt.hash(password, 10);
 
   // 5. Create user object in DB
@@ -187,4 +191,83 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "User logged out successfully"));
 });
 
-export { registerUser, loginUser, logoutUser };
+const updateAccountDetails = asyncHandler(async (req, res) => {
+  const { name, email, number, password } = req.body;
+
+  // 1. Validation: Ensure at least one field is provided for update
+  if (!name && !email && !number && !password) {
+    throw new ApiError(400, "At least one field is required to update");
+  }
+
+  // 2. Prepare the update data object
+  const updateData = {};
+  if (name) updateData.name = name;
+  if (email) updateData.email = email;
+  if (number) updateData.number = number;
+
+  // 3. Special handling for password: Hash it before saving
+  if (password) {
+    if (password.length < 6) {
+      throw new ApiError(400, "Password must be at least 6 characters long");
+    }
+    updateData.password = await bcrypt.hash(password, 10);
+  }
+
+  // 4. Update in Database
+  // Note: req.user.id comes from your verifyJWT middleware
+  const updatedUser = await prisma.user.update({
+    where: {
+      id: req.user.id
+    },
+    data: updateData,
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      number: true,
+      role: true,
+      updatedAt: true
+    }
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, updatedUser, "Account details updated successfully"));
+});
+
+const deleteAccount = asyncHandler(async (req, res) => {
+  // 1. Identify the user (from verifyJWT middleware)
+  const userId = req.user.id;
+
+  // 2. Check if user exists (Optional but good for safety)
+  const user = await prisma.user.findUnique({
+    where: { id: userId }
+  });
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  // 3. Delete the user from the database
+  // Note: If you have Reports linked to this user, 
+  // you must handle 'OnDelete: Cascade' in your Prisma Schema
+  await prisma.user.delete({
+    where: {
+      id: userId
+    }
+  });
+
+  // 4. Clear the cookies after deletion
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production"
+  };
+
+  return res
+    .status(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(200, {}, "Account deleted successfully"));
+});
+
+export { registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount };
