@@ -44,6 +44,31 @@ const generateAccessAndRefreshTokens = async (userId) => {
   }
 };
 
+const getCurrentUser = asyncHandler(async (req, res) => {
+  // 1. Fetch user from DB using ID from the auth middleware
+  const user = await prisma.user.findUnique({
+    where: {
+      id: req.user.id
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      number: true,
+      role: true,
+      isVerified: true,
+      createdAt: true,
+      updatedAt: true,
+      // We EXCLUDE password and refreshToken for security
+    }
+  });
+
+  // 2. Return the data
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "User profile fetched successfully"));
+});
+
 const registerUser = asyncHandler(async (req, res) => {
   // 1. Get user details from frontend
   // Note: Adjusted fields to match our Prisma schema (name, email, password, number)
@@ -270,4 +295,60 @@ const deleteAccount = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "Account deleted successfully"));
 });
 
-export { registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount };
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  // 1. Get the refresh token from cookies (or body as fallback)
+  const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
+
+  if (!incomingRefreshToken) {
+    throw new ApiError(401, "Unauthorized request: No refresh token found");
+  }
+
+  try {
+    // 2. Verify the token using the Refresh Secret
+    const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+
+    // 3. Find the user in the database
+    const user = await prisma.user.findUnique({
+      where: { id: decodedToken?.id }
+    });
+
+    if (!user) {
+      throw new ApiError(401, "Invalid refresh token: User not found");
+    }
+
+    // 4. Security Check: Compare the incoming token with the one stored in DB
+    // This prevents old/stolen tokens from being used
+    if (incomingRefreshToken !== user.refreshToken) {
+      throw new ApiError(401, "Refresh token is expired or used");
+    }
+
+    // 5. Generate NEW tokens (reuse your helper function)
+    const { accessToken, refreshToken: newRefreshToken } = await generateAccessAndRefreshTokens(user.id);
+
+    // 6. Set updated cookies
+    const options = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production"
+    };
+
+    return res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", newRefreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          { accessToken, refreshToken: newRefreshToken },
+          "Access token refreshed successfully"
+        )
+      );
+
+  } catch (error) {
+    throw new ApiError(401, error?.message || "Invalid refresh token");
+  }
+});
+
+export { getCurrentUser, registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken };
