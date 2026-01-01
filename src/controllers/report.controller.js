@@ -48,7 +48,7 @@ const updateReport = asyncHandler(async (req, res) => {
     if (!req.body) {
         throw new ApiError(400, "Request body is missing");
     }
-    
+
     // 1. Extract report ID from URL and data from body
     const { reportId } = req.params;
     const { title, description, type, latitude, longitude, locationName } = req.body;
@@ -97,6 +97,87 @@ const updateReport = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, updatedReport, "Report updated successfully"));
 });
 
+const deleteReport = asyncHandler(async (req, res) => {
+    // 1. Extract the reportId from the URL params
+    const { reportId } = req.params;
 
+    // 2. Find the report to check ownership
+    const report = await prisma.report.findUnique({
+        where: { id: reportId }
+    });
 
-export { createReport, updateReport };
+    // 3. Check if report exists
+    if (!report) {
+        throw new ApiError(404, "Report not found");
+    }
+
+    // 4. Authorization: Only the owner or an Admin can delete
+    // Note: req.user.id and req.user.role come from your verifyJWT middleware
+    if (report.userId !== req.user.id && req.user.role !== "ADMIN") {
+        throw new ApiError(403, "You do not have permission to delete this report");
+    }
+
+    // 5. Delete the report
+    // Because of your 'onDelete: Cascade' in Prisma, 
+    // this will also remove associated comments/votes if configured.
+    await prisma.report.delete({
+        where: { id: reportId }
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, {}, "Report deleted successfully"));
+});
+
+const getReports = asyncHandler(async (req, res) => {
+    // 1. Get the user ID from the middleware
+    // This is the "Zoro" way: precise and secure.
+    const userId = req.user.id;
+
+    // 2. Fetch all reports where the userId matches
+    const reports = await prisma.report.findMany({
+        where: {
+            userId: userId
+        },
+        orderBy: {
+            createdAt: 'desc' // Shows the newest reports first
+        }
+    });
+
+    // 3. Return the response
+    // Even if the user has 0 reports, we return an empty array [] with a 200 status.
+    return res
+        .status(200)
+        .json(new ApiResponse(200, reports, "User's reports retrieved successfully"));
+});
+
+const getAllReports = asyncHandler(async (req, res) => {
+    // 1. Fetch all reports from the database
+    const reports = await prisma.report.findMany({
+        // For now, we leave the 'where' clause empty to get EVERYTHING
+        include: {
+            user: {
+                select: {
+                    name: true,
+                    role: true
+                }
+            },
+            _count: {
+                select: {
+                    comments: true,
+                    vote: true
+                }
+            }
+        },
+        orderBy: {
+            createdAt: 'desc' // Latest disasters appear first
+        }
+    });
+
+    // 2. Return the response
+    return res
+        .status(200)
+        .json(new ApiResponse(200, reports, "All disaster reports retrieved successfully"));
+});
+
+export { createReport, updateReport, deleteReport, getReports, getAllReports };
