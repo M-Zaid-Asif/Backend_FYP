@@ -72,11 +72,22 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 const registerUser = asyncHandler(async (req, res) => {
   // 1. Get user details from frontend
   // Note: Adjusted fields to match our Prisma schema (name, email, password, number)
-  const { name, email, password, number } = req.body;
+  const { name, email, password, number, role } = req.body;
 
   // 2. Validation - not empty
   if ([name, email, password].some((field) => field?.trim() === "")) {
     throw new ApiError(400, "Name, Email, and Password are required");
+  }
+
+  const validatePakistaniNumber = (number) => {
+    // Regex: Starts with 03, then exactly 9 digits (0-9)
+    const regex = /^03\d{9}$/;
+    return regex.test(number);
+  };
+
+  // Inside your registerUser or updateAccountDetails controller:
+  if (number && !validatePakistaniNumber(number)) {
+    throw new ApiError(400, "Please provide a valid Pakistani mobile number (11 digits starting with 03)");
   }
 
   // 3. Check if user already exists (Prisma findFirst with OR)
@@ -103,6 +114,7 @@ const registerUser = asyncHandler(async (req, res) => {
     data: {
       name,
       email,
+      role,
       password: hashedPassword,
       number,
       refreshToken: "" // Initialize as empty
@@ -174,8 +186,9 @@ const loginUser = asyncHandler(async (req, res) => {
   // 7. Cookie Options
   const options = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production", // true only in production
-    sameSite: "strict"
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/"
   };
 
   // 8. Send response
@@ -219,18 +232,53 @@ const logoutUser = asyncHandler(async (req, res) => {
 const updateAccountDetails = asyncHandler(async (req, res) => {
   const { name, email, number, password } = req.body;
 
-  // 1. Validation: Ensure at least one field is provided for update
+  // 1. Validation: Ensure at least one field is provided
   if (!name && !email && !number && !password) {
     throw new ApiError(400, "At least one field is required to update");
   }
 
-  // 2. Prepare the update data object
-  const updateData = {};
-  if (name) updateData.name = name;
-  if (email) updateData.email = email;
-  if (number) updateData.number = number;
+  const validatePakistaniNumber = (number) => {
+    // Regex: Starts with 03, then exactly 9 digits (0-9)
+    const regex = /^03\d{9}$/;
+    return regex.test(number);
+  };
 
-  // 3. Special handling for password: Hash it before saving
+  // Inside your registerUser or updateAccountDetails controller:
+  if (number && !validatePakistaniNumber(number)) {
+    throw new ApiError(400, "Please provide a valid Pakistani mobile number (11 digits starting with 03)");
+  }
+
+  const updateData = {};
+
+  // 2. Handle Name Update (Sync with Frontend Regex)
+  if (name) {
+    // Regex allows letters, spaces, hyphens, and apostrophes
+    const nameRegex = /^[a-zA-Z\s\-']+$/;
+    if (!nameRegex.test(name)) {
+      throw new ApiError(400, "Name contains invalid characters. Use only letters, spaces, or hyphens.");
+    }
+    updateData.name = name;
+  }
+
+  // 3. Handle Email Update (Check for duplicates)
+  if (email) {
+    const existingUser = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    // If email exists and belongs to a DIFFERENT user, throw error
+    if (existingUser && existingUser.id !== req.user.id) {
+      throw new ApiError(409, "A user with this email already exists");
+    }
+    updateData.email = email;
+  }
+
+  // 4. Handle Phone Number
+  if (number !== undefined) {
+    updateData.number = number;
+  }
+
+  // 5. Handle Password Update (Hash before saving)
   if (password) {
     if (password.length < 6) {
       throw new ApiError(400, "Password must be at least 6 characters long");
@@ -238,8 +286,8 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     updateData.password = await bcrypt.hash(password, 10);
   }
 
-  // 4. Update in Database
-  // Note: req.user.id comes from your verifyJWT middleware
+  // 6. Update in Database
+  // req.user.id is populated by your verifyJWT middleware
   const updatedUser = await prisma.user.update({
     where: {
       id: req.user.id
@@ -255,6 +303,7 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     }
   });
 
+  // 7. Return Response
   return res
     .status(200)
     .json(new ApiResponse(200, updatedUser, "Account details updated successfully"));
