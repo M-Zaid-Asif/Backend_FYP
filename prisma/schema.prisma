@@ -105,6 +105,18 @@ model Resource {
   @@index([category])
 }
 
+// Conditions Model
+model Condition {
+  id               String   @id @default(uuid())
+  title            String   @unique // e.g., "Drowning", "Choking"
+  description      String?  @db.Text
+  recoveryPosition String?  @db.Text
+  steps            String   @db.Text // Store steps as a long string or JSON
+  precautions      String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
 // Notification Schema
 model Notification {
   id      String @id @default(uuid())

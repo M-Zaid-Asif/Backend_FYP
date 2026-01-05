@@ -3,6 +3,7 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 import {registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, getCurrentUser} from "../controllers/user.controller.js"
 
 import {createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource} from "../controllers/report.controller.js"
+import { getKnowledgeChatResponse } from "../controllers/chatbot.controller.js";
 
 const router = Router();
 
@@ -27,5 +28,8 @@ router.route("/addResources").post(verifyJWT, addResource)
 router.route("/getResources").get(verifyJWT, getMyResources)
 router.route("/deleteResource/:resourceId").delete(verifyJWT, deleteResource)
 router.route("/updateResource/:resourceId").patch(verifyJWT, updateResource)
+
+// Chatbot
+router.route("/ask").get(verifyJWT, getKnowledgeChatResponse)
 
 export default router
