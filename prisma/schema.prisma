@@ -50,6 +50,7 @@ model User {
   notifications Notification[]
   comments      Comment[]
   vote          Vote[]
+  resources     Resource[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -81,6 +82,27 @@ model Report {
   updatedAt DateTime @updatedAt
   
   @@index([latitude, longitude])
+}
+
+// Resources Model
+model Resource {
+  id          String   @id @default(uuid())
+  category    String   // e.g., "Food", "Water", "Medicine", "Clothing"
+  itemName    String   // e.g., "Mineral Water 1L", "First Aid Kit"
+  quantity    Int      @default(0)
+  unit        String   // e.g., "bottles", "kg", "boxes", "units"
+  description String?  // e.g., "Available for immediate pickup"
+  
+  // Relationship fields
+  owner       User     @relation(fields: [ownerId], references: [id])
+  ownerId     String
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Indexing ownerId and category makes searching much faster
+  @@index([ownerId])
+  @@index([category])
 }
 
 // Notification Schema

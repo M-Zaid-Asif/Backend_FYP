@@ -2,7 +2,7 @@ import { Router } from "express"
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import {registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, getCurrentUser} from "../controllers/user.controller.js"
 
-import {createReport, updateReport, deleteReport, getReports, getAllReports} from "../controllers/report.controller.js"
+import {createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource} from "../controllers/report.controller.js"
 
 const router = Router();
 
@@ -22,5 +22,10 @@ router.route("/updateReport/:reportId").patch(verifyJWT, updateReport);
 router.route("/deleteReport/:reportId").delete(verifyJWT, deleteReport);
 router.route("/getReports").get(verifyJWT, getReports);
 router.route("/getAllReports").get(verifyJWT, getAllReports)
+
+router.route("/addResources").post(verifyJWT, addResource)
+router.route("/getResources").get(verifyJWT, getMyResources)
+router.route("/deleteResource/:resourceId").delete(verifyJWT, deleteResource)
+router.route("/updateResource/:resourceId").patch(verifyJWT, updateResource)
 
 export default router

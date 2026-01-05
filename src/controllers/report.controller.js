@@ -162,12 +162,6 @@ const getAllReports = asyncHandler(async (req, res) => {
                     role: true
                 }
             },
-            _count: {
-                select: {
-                    comments: true,
-                    vote: true
-                }
-            }
         },
         orderBy: {
             createdAt: 'desc' // Latest disasters appear first
@@ -180,4 +174,126 @@ const getAllReports = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, reports, "All disaster reports retrieved successfully"));
 });
 
-export { createReport, updateReport, deleteReport, getReports, getAllReports };
+
+const addResource = asyncHandler(async (req, res) => {
+    // 1. Authorization: Only NGOs can manage inventory
+    if (req.user.role !== "NGO") {
+        throw new ApiError(403, "Access denied. Only NGOs can populate resources.");
+    }
+
+    // 2. Destructure fields from body
+    const { category, itemName, quantity, unit, description } = req.body;
+
+    // 3. Validation: Mandatory fields
+    if (!category || !itemName || quantity === undefined) {
+        throw new ApiError(400, "Category, Item Name, and Quantity are mandatory.");
+    }
+
+    // 4. Create Resource in Prisma
+    // Note: unit and description are optional as per our schema
+    const resource = await prisma.resource.create({
+        data: {
+            category,
+            itemName,
+            quantity: parseInt(quantity),
+            unit: unit || "units",
+            description: description || "units",
+            owner: {
+                connect: { id: req.user.id }
+            } // Linking to the logged-in NGO
+        },
+        include: {
+            owner: {
+                select: {
+                    name: true,
+                    email: true
+                }
+            }
+        }
+    });
+
+    // 5. Success Response
+    return res
+        .status(201)
+        .json(new ApiResponse(201, resource, "Resource added to inventory successfully"));
+});
+
+
+const getMyResources = asyncHandler(async (req, res) => {
+    const resources = await prisma.resource.findMany({
+        where: { ownerId: req.user.id },
+        orderBy: { createdAt: 'desc' }
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, resources, "NGO inventory retrieved"));
+});
+
+const updateResource = asyncHandler(async (req, res) => {
+    const { resourceId } = req.params;
+    const { category, itemName, quantity, unit, description } = req.body;
+
+    // 1. Find the resource to check if it exists and who owns it
+    const resource = await prisma.resource.findUnique({
+        where: { id: resourceId }
+    });
+
+    if (!resource) {
+        throw new ApiError(404, "Resource not found");
+    }
+
+    // 2. Authorization: Check if the logged-in user owns this resource
+    if (resource.ownerId !== req.user.id) {
+        throw new ApiError(403, "You do not have permission to update this resource");
+    }
+
+    // 3. Prepare data for update (Optional fields handling)
+    const updateData = {};
+    if (category) updateData.category = category;
+    if (itemName) updateData.itemName = itemName;
+    if (quantity !== undefined) updateData.quantity = parseInt(quantity);
+    if (unit !== undefined) updateData.unit = unit;
+    if (description !== undefined) updateData.description = description;
+
+    // 4. Update in Database
+    const updatedResource = await prisma.resource.update({
+        where: { id: resourceId },
+        data: updateData
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, updatedResource, "Resource updated successfully"));
+});
+
+const deleteResource = asyncHandler(async (req, res) => {
+    const { resourceId } = req.params;
+
+    // 1. Find the resource
+    const resource = await prisma.resource.findUnique({
+        where: { id: resourceId }
+    });
+
+    if (!resource) {
+        throw new ApiError(404, "Resource not found");
+    }
+
+    // 2. Authorization: Only the owner can delete
+    if (resource.ownerId !== req.user.id) {
+        throw new ApiError(403, "You do not have permission to delete this resource");
+    }
+
+    // 3. Delete from DB
+    await prisma.resource.delete({
+        where: { id: resourceId }
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, {}, "Resource removed from inventory"));
+});
+
+export {
+    createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, updateResource, deleteResource
+};
