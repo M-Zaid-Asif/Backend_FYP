@@ -4,6 +4,7 @@ import {registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount
 
 import {createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource} from "../controllers/report.controller.js"
 import { getKnowledgeChatResponse } from "../controllers/chatbot.controller.js";
+import { getCurrentWeather } from "../controllers/Weather.controller.js";
 
 const router = Router();
 
@@ -30,6 +31,9 @@ router.route("/deleteResource/:resourceId").delete(verifyJWT, deleteResource)
 router.route("/updateResource/:resourceId").patch(verifyJWT, updateResource)
 
 // Chatbot
-router.route("/ask").get(verifyJWT, getKnowledgeChatResponse)
+router.route("/ask").post(verifyJWT, getKnowledgeChatResponse)
+
+// Router
+router.route("/currentWeather").get(getCurrentWeather)
 
 export default router
