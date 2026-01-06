@@ -4,7 +4,7 @@ import {registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount
 
 import {createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource} from "../controllers/report.controller.js"
 import { getKnowledgeChatResponse } from "../controllers/chatbot.controller.js";
-import { getCurrentWeather } from "../controllers/Weather.controller.js";
+import { getCurrentWeather } from "../controllers/weather.controller.js";
 
 const router = Router();
 
