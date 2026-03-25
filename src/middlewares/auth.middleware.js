@@ -17,7 +17,7 @@ export const verifyJWT = asyncHandler(async (req, _, next) => {
 
         const user = await prisma.user.findUnique({
             where: {
-                id: decodedToken?.id, // Ensure this matches the key in your token
+                id: decodedToken?.id,
             },
             select: {
                 id: true,
@@ -37,7 +37,6 @@ export const verifyJWT = asyncHandler(async (req, _, next) => {
 
         // mean our present user has whole requested user injected in it.
         req.user = user;
-
         next()
 
     } catch (error) {

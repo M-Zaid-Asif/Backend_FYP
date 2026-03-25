@@ -11,13 +11,12 @@ const prisma = new PrismaClient({ adapter });
 // Connection logic
 async function connectDB() {
   try {
-    // Manually trigger the connection
     await prisma.$connect();
-    console.log("✅ Database connection established successfully via Prisma.");
+    console.log("Database connection established successfully via Prisma.");
   } catch (error) {
-    console.error("❌ Failed to connect to the database:");
+    console.error("Failed to connect to the database:");
     console.error(error);
-    process.exit(1); // Stop the app if DB connection fails
+    process.exit(1); 
   }
 }
 
@@ -28,9 +27,7 @@ const gracefulShutdown = async (signal) => {
   console.log(`\nReceived ${signal}. Shutting down...`);
   
   try {
-    // Disconnect Prisma
     await prisma.$disconnect();
-    // Close the PG Pool
     await pool.end();
     
     console.log("Database disconnected from the Application");

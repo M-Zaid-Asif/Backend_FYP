@@ -1,0 +1,4 @@
+[tests]
+framework = "Jest" # or "Vitest"
+utility_library = "Testing Library" # for React
+use_mocks = true # Highly recommended for Prisma/Node

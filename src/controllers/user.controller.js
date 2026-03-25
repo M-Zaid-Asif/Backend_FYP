@@ -59,7 +59,6 @@ const getCurrentUser = asyncHandler(async (req, res) => {
       isVerified: true,
       createdAt: true,
       updatedAt: true,
-      // We EXCLUDE password and refreshToken for security
     }
   });
 
@@ -71,7 +70,6 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 
 const registerUser = asyncHandler(async (req, res) => {
   // 1. Get user details from frontend
-  // Note: Adjusted fields to match our Prisma schema (name, email, password, number)
   const { name, email, password, number, role } = req.body;
 
   // 2. Validation - not empty
@@ -102,7 +100,6 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   // 4. Hash the password
-  // (Mongoose usually does this in a pre-save hook, but in Prisma we do it here)
   if (password.length < 6) {
     throw new ApiError(400, "Password must be at least 6 characters long");
   }
@@ -207,15 +204,14 @@ const loginUser = asyncHandler(async (req, res) => {
 
 const logoutUser = asyncHandler(async (req, res) => {
   // 1. Update user in DB to remove the refresh token
-  // Note: req.user.id comes from your verifyJWT middleware
   await prisma.user.update({
     where: { id: req.user.id },
     data: {
-      refreshToken: null // Equivalent to Mongoose $unset
+      refreshToken: null 
     }
   });
 
-  // 2. Cookie Options (Must match the ones used during login)
+  // 2. Cookie Options
   const options = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production"
@@ -243,14 +239,14 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     return regex.test(number);
   };
 
-  // Inside your registerUser or updateAccountDetails controller:
+  
   if (number && !validatePakistaniNumber(number)) {
     throw new ApiError(400, "Please provide a valid Pakistani mobile number (11 digits starting with 03)");
   }
 
   const updateData = {};
 
-  // 2. Handle Name Update (Sync with Frontend Regex)
+  // 2. Handle Name Update
   if (name) {
     // Regex allows letters, spaces, hyphens, and apostrophes
     const nameRegex = /^[a-zA-Z\s\-']+$/;
@@ -287,7 +283,6 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
   }
 
   // 6. Update in Database
-  // req.user.id is populated by your verifyJWT middleware
   const updatedUser = await prisma.user.update({
     where: {
       id: req.user.id
@@ -310,10 +305,10 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
 });
 
 const deleteAccount = asyncHandler(async (req, res) => {
-  // 1. Identify the user (from verifyJWT middleware)
+  // 1. Identify the user
   const userId = req.user.id;
 
-  // 2. Check if user exists (Optional but good for safety)
+  // 2. Check if user exists
   const user = await prisma.user.findUnique({
     where: { id: userId }
   });
@@ -323,8 +318,6 @@ const deleteAccount = asyncHandler(async (req, res) => {
   }
 
   // 3. Delete the user from the database
-  // Note: If you have Reports linked to this user, 
-  // you must handle 'OnDelete: Cascade' in your Prisma Schema
   await prisma.user.delete({
     where: {
       id: userId
@@ -345,7 +338,7 @@ const deleteAccount = asyncHandler(async (req, res) => {
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
-  // 1. Get the refresh token from cookies (or body as fallback)
+  // 1. Get the refresh token from cookies
   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
 
   if (!incomingRefreshToken) {
@@ -369,7 +362,6 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     }
 
     // 4. Security Check: Compare the incoming token with the one stored in DB
-    // This prevents old/stolen tokens from being used
     if (incomingRefreshToken !== user.refreshToken) {
       throw new ApiError(401, "Refresh token is expired or used");
     }

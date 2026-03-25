@@ -24,17 +24,16 @@ const getKnowledgeChatResponse = asyncHandler(async (req, res) => {
     if (localData) {
         return res.status(200).json(
             new ApiResponse(200, {
-                title: localData.title, // e.g., "Drowning" [cite: 4]
-                recoveryPosition: localData.recoveryPosition, // [cite: 5]
+                title: localData.title, // e.g., "Drowning"
+                recoveryPosition: localData.recoveryPosition, 
                 steps: localData.steps, // [cite: 8]
-                precautions: localData.precautions, // [cite: 13]
+                precautions: localData.precautions, 
                 verified: true
             }, "Verified rescue instructions retrieved.")
         );
     }
 
     // 3. Handle Case: Condition Not Found
-    // Since we are not using Gemini, we provide a helpful fallback message.
     return res.status(404).json(
         new ApiResponse(404, {
             reply: "I'm sorry, I couldn't find specific instructions for that in our database. Please contact emergency services immediately.",
