@@ -6,53 +6,89 @@ import { ApiError } from "../utils/ApiError.js";
 const getCurrentWeather = asyncHandler(async (req, res) => {
     const { lat, lon, city } = req.query;
     const apiKey = process.env.WEATHER_API_KEY;
+    const baseUrl = process.env.WEATHER_BASE_URL;
+
+    if (!apiKey) {
+        throw new ApiError(500, "Server configuration error: Missing API Key");
+    }
 
     try {
         let locationParam = (lat && lon) ? `${lat},${lon}` : (city || "Islamabad");
+        
+        // Construct the URL - ensure we include current and days
+        const weatherUrl = `${baseUrl}/${locationParam}/next7days?unitGroup=metric&include=days,current&key=${apiKey}&contentType=json`;
 
-        // 1. Get the Weather Data (Visual Crossing)
-        const weatherUrl = `${process.env.WEATHER_BASE_URL}/${locationParam}/next7days?unitGroup=metric&include=days,current&key=${apiKey}&contentType=json`;
         const weatherRes = await axios.get(weatherUrl);
         const weatherData = weatherRes.data;
 
-        // 2. Get the City Name (BigDataCloud - only if we have coordinates)
+        // 1. Reverse Geocoding
         let cityName = city || "Islamabad"; 
         if (lat && lon) {
-            const geoRes = await axios.get(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
-            cityName = geoRes.data.city || geoRes.data.locality || cityName;
+            try {
+                const geoRes = await axios.get(
+                    `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`,
+                    { timeout: 2000 }
+                );
+                cityName = geoRes.data.city || geoRes.data.locality || cityName;
+            } catch (geoErr) {
+                // Fallback handled by cityName variable initialization
+            }
         }
 
-        if (!weatherData) {
-            throw new ApiError(404, "Weather data not found");
+        if (!weatherData?.currentConditions) {
+            throw new ApiError(404, "Weather data unavailable from provider.");
         }
 
-        // 3. Map Current Data using cityName for location
+        // 2. Map Current Data (Added humidity and precip)
         const currentData = {
-            location: cityName, // Use the clean name we fetched
-            temp: weatherData.currentConditions.temp,
-            conditions: weatherData.currentConditions.conditions,
-            windspeed: weatherData.currentConditions.windspeed,
-            humidity: weatherData.currentConditions.humidity
+            location: cityName,
+            temp: weatherData.currentConditions.temp ?? 0,
+            conditions: weatherData.currentConditions.conditions ?? "Clear",
+            windspeed: weatherData.currentConditions.windspeed ?? 0,
+            humidity: weatherData.currentConditions.humidity ?? 0,
+            precip: weatherData.currentConditions.precip ?? 0, // Current rain intensity
         };
 
-        // 4. Map 7-Day Forecast Data
-        const forecastData = weatherData.days.slice(0, 7).map(day => ({
-            date: day.datetime,
-            temp: day.temp,
-            conditions: day.conditions,
+        // 3. Map Forecast Data (Added precip, precipprob, tempmax, and feelslike)
+        const forecastData = (weatherData.days || []).slice(0, 7).map(day => ({
+            datetime: day.datetime, // Keep naming consistent with frontend date-fns
+            temp: day.temp ?? 0,
+            tempmax: day.tempmax ?? 0,
+            feelslike: day.feelslike ?? 0,
+            conditions: day.conditions ?? "Clear",
+            precip: day.precip ?? 0,           // Rainfall in mm
+            precipprob: day.precipprob ?? 0,   // Probability of rain %
             icon: day.icon 
         }));
 
-        // 5. Return both in one response
         return res.status(200).json(
             new ApiResponse(200, {
                 current: currentData,
-                forecast: forecastData
+                days: forecastData // Named 'days' to match the WeatherCard.jsx expectations
             }, "Weather and 7-day forecast updated successfully")
         );
+
     } catch (error) {
-        throw new ApiError(500, error?.message || "Weather sync failed");
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Weather sync failed internally"
+        });
     }
 });
 
-export { getCurrentWeather };
+const getMapConfig = asyncHandler(async (req, res) => {
+    const { lat, lon } = req.query;
+
+    const config = {
+        // Center coordinates [lat, lng]
+        center: [parseFloat(lat) || 33.6844, parseFloat(lon) || 73.0479],
+        zoom: 13,
+        // Using CartoDB Dark Matter tiles (Free & looks great for weather apps)
+        tileUrl: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    };
+
+    return res.status(200).json(new ApiResponse(200, config, "Map config fetched"));
+});
+
+export { getCurrentWeather, getMapConfig };

@@ -1,12 +1,17 @@
 import { Router } from "express"
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import {registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, getCurrentUser} from "../controllers/user.controller.js"
+import { registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, getCurrentUser } from "../controllers/user.controller.js"
 
-import {createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource} from "../controllers/report.controller.js"
+import { createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource, toggleVote } from "../controllers/report.controller.js"
+
 import { getKnowledgeChatResponse } from "../controllers/chatbot.controller.js";
-import { getCurrentWeather } from "../controllers/weather.controller.js";
+
+import { getCurrentWeather, getMapConfig } from "../controllers/weather.controller.js";
+
+import { addComment, getReportComments, deleteComment, updateComment } from "../controllers/comments.controller.js";
 
 const router = Router();
+
 
 // User Routes
 router.route("/register").post(registerUser);
@@ -17,6 +22,13 @@ router.route("/getUserProfile").get(verifyJWT, getCurrentUser)
 router.route("/logout").post(verifyJWT, logoutUser)
 router.route("/update").patch(verifyJWT, updateAccountDetails)
 router.route("/delete").delete(verifyJWT, deleteAccount)
+
+// Router
+router.route("/currentWeather").get(getCurrentWeather)
+router.route("/getMapConfig").get(getMapConfig)
+
+// Chatbot
+router.route("/ask").post(verifyJWT, getKnowledgeChatResponse)
 
 // Report Routes
 router.route("/createReport").post(verifyJWT, createReport);
@@ -30,10 +42,20 @@ router.route("/getResources").get(verifyJWT, getMyResources)
 router.route("/deleteResource/:resourceId").delete(verifyJWT, deleteResource)
 router.route("/updateResource/:resourceId").patch(verifyJWT, updateResource)
 
-// Chatbot
-router.route("/ask").post(verifyJWT, getKnowledgeChatResponse)
 
-// Router
-router.route("/currentWeather").get(getCurrentWeather)
+// Route for a specific report (Getting all comments or adding a new one)
+router.route("/:reportId")
+    .get(getReportComments)
+    .post(verifyJWT, addComment);
+
+// Route for a specific comment (Updating or Deleting)
+router.route("/c/:commentId")
+    .patch(verifyJWT, updateComment)
+    .delete(verifyJWT, deleteComment);
+
+// Vote
+router.route("/v/:reportId").post(verifyJWT, toggleVote);
+
+
 
 export default router

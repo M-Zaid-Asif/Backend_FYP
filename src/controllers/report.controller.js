@@ -1,13 +1,13 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import { validateFloodReport } from "../service/floodValidationService.js";
 import prisma from "../constants/prisma.js";
 
+
 const createReport = asyncHandler(async (req, res) => {
-    // 1. Destructure from req.body
     const { title, description, type, latitude, longitude, locationName } = req.body;
 
-    // 2. Validation
     if ([title, description, type].some((field) => field?.trim() === "")) {
         throw new ApiError(400, "Title, description, and disaster type are required");
     }
@@ -16,32 +16,94 @@ const createReport = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Latitude and longitude coordinates are required");
     }
 
-    // 3. Create the Report in Prisma
     const report = await prisma.report.create({
         data: {
             title,
-            description, // FLOOD AND EARTHQUAKE
-            type, // Prisma handles the DisasterType ENUM automatically
+            description,
+            type, 
             latitude: parseFloat(latitude),
             longitude: parseFloat(longitude),
             locationName: locationName || "Unknown Location",
-            userId: req.user.id, // Linking the report to the logged-in user
-            // status defaults to PENDING, votesCount defaults to 0 as per your model
+            userId: req.user.id,
         },
+        include: {
+            user: { select: { name: true, email: true } }
+        }
+    });
+
+    console.log("--- DEBUG: Report Created ---");
+    console.log("Log 1: ID:", report.id);
+
+    // FIX 2: More robust type checking
+    // This ensures that even if "type" is a strict Enum object, we catch it.
+    const isFlood = type && type.toString().toUpperCase().includes("FLOOD");
+
+    if (isFlood) {
+        console.log("Log 2: Triggering Validation Service...");
+        
+        // Background process
+        validateFloodReport(report.id).catch((err) => {
+            console.error("CRITICAL: Background Service Failed to Start:", err.message);
+        });
+    } else {
+        console.log("Log 2: Validation skipped. Type received was:", type);
+    }
+
+    return res
+        .status(201)
+        .json(new ApiResponse(201, report, "Disaster report submitted and validation initiated."));
+});
+
+const getAllReports = asyncHandler(async (req, res) => {
+    // 1. Fetch all reports with their relations
+    const reports = await prisma.report.findMany({
         include: {
             user: {
                 select: {
                     name: true,
-                    email: true
+                    role: true
                 }
-            }
+            },
+            // Ensure lowercase 'v' to match your schema.prisma
+            validationResult: true 
+        },
+        orderBy: {
+            createdAt: 'desc'
         }
     });
 
-    // 4. Send response
+    // 2. RETROACTIVE FIX: 
+    // Loop through existing reports. If a FLOOD report is missing its 
+    // validation result (common for old reports), trigger the service now.
+    reports.forEach((report) => {
+        if (report.type === "FLOOD" && !report.validationResult) {
+            console.log(`[System] Retro-validating legacy report: ${report.id}`);
+            
+            // Fire-and-forget: validate in background
+            validateFloodReport(report.id).catch((err) => {
+                console.error(`[System] Failed to retro-validate ${report.id}:`, err.message);
+            });
+        }
+    });
+
+    // 3. Return the reports
+    // Note: The first time this runs, the validationResult might still be null in the response
+    // but because your frontend polls every 5s, the NEXT call will have the data.
     return res
-        .status(201)
-        .json(new ApiResponse(201, report, "Disaster report submitted successfully"));
+        .status(200)
+        .json(new ApiResponse(200, reports, "All disaster reports retrieved successfully"));
+});
+
+const getReports = asyncHandler(async (req, res) => {
+    const reports = await prisma.report.findMany({
+        where: { userId: req.user.id },
+        include: { validationResult: true },
+        orderBy: { createdAt: 'desc' }
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, reports, "User's reports retrieved successfully"));
 });
 
 const updateReport = asyncHandler(async (req, res) => {
@@ -128,52 +190,6 @@ const deleteReport = asyncHandler(async (req, res) => {
         .status(200)
         .json(new ApiResponse(200, {}, "Report deleted successfully"));
 });
-
-const getReports = asyncHandler(async (req, res) => {
-    // 1. Get the user ID from the middleware
-    // This is the "Zoro" way: precise and secure.
-    const userId = req.user.id;
-
-    // 2. Fetch all reports where the userId matches
-    const reports = await prisma.report.findMany({
-        where: {
-            userId: userId
-        },
-        orderBy: {
-            createdAt: 'desc' // Shows the newest reports first
-        }
-    });
-
-    // 3. Return the response
-    // Even if the user has 0 reports, we return an empty array [] with a 200 status.
-    return res
-        .status(200)
-        .json(new ApiResponse(200, reports, "User's reports retrieved successfully"));
-});
-
-const getAllReports = asyncHandler(async (req, res) => {
-    // 1. Fetch all reports from the database
-    const reports = await prisma.report.findMany({
-        // For now, we leave the 'where' clause empty to get EVERYTHING
-        include: {
-            user: {
-                select: {
-                    name: true,
-                    role: true
-                }
-            },
-        },
-        orderBy: {
-            createdAt: 'desc' // Latest disasters appear first
-        }
-    });
-
-    // 2. Return the response
-    return res
-        .status(200)
-        .json(new ApiResponse(200, reports, "All disaster reports retrieved successfully"));
-});
-
 
 const addResource = asyncHandler(async (req, res) => {
     // 1. Authorization: Only NGOs can manage inventory
@@ -294,6 +310,85 @@ const deleteResource = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "Resource removed from inventory"));
 });
 
+const toggleVote = asyncHandler(async (req, res) => {
+    const { reportId } = req.params;
+    const { value } = req.body; // Expecting +1 or -1
+    const userId = req.user.id;
+
+    if (![1, -1].includes(value)) {
+        throw new ApiError(400, "Vote value must be 1 (Upvote) or -1 (Downvote)");
+    }
+
+    const report = await prisma.report.findUnique({
+        where: { id: reportId }
+    });
+
+    if (!report) {
+        throw new ApiError(404, "Report not found");
+    }
+
+    const existingVote = await prisma.vote.findUnique({
+        where: {
+            userId_reportId: { userId, reportId }
+        }
+    });
+
+    let message = "";
+    let finalValue = value;
+
+    // 1. Database Transaction to update vote counts
+    await prisma.$transaction(async (tx) => {
+        if (existingVote) {
+            if (existingVote.value === value) {
+                // SCENARIO A: Remove Vote
+                await tx.vote.delete({ where: { id: existingVote.id } });
+                await tx.report.update({
+                    where: { id: reportId },
+                    data: { votesCount: { decrement: value } }
+                });
+                message = "Vote removed successfully";
+                finalValue = 0;
+            } else {
+                // SCENARIO B: Switch Vote (+1 to -1 or vice versa)
+                await tx.vote.update({
+                    where: { id: existingVote.id },
+                    data: { value: value }
+                });
+                await tx.report.update({
+                    where: { id: reportId },
+                    data: { votesCount: { increment: value * 2 } }
+                });
+                message = "Vote updated successfully";
+            }
+        } else {
+            // SCENARIO C: New Vote
+            await tx.vote.create({
+                data: { userId, reportId, value }
+            });
+            await tx.report.update({
+                where: { id: reportId },
+                data: { votesCount: { increment: value } }
+            });
+            message = "Vote recorded successfully";
+        }
+    });
+
+    // 2. IMPACT TRIGGER: Re-calculate authenticity score
+    // Since the score now depends 25% on community votes, we trigger validation.
+    if (report.type === "FLOOD") {
+        console.log(`[Trust Engine] Re-validating report ${reportId} due to community interaction.`);
+        
+        // Background task (no await)
+        validateFloodReport(reportId).catch((err) => {
+            console.error("Failed to re-validate report on vote:", err.message);
+        });
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, { currentVote: finalValue }, message)
+    );
+});
+
 export {
-    createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, updateResource, deleteResource
+    createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, updateResource, deleteResource, toggleVote
 };
