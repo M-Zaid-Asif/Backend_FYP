@@ -70,35 +70,40 @@ model Report {
   status ReportStatus @default(PENDING)
 
   comments Comment[]
-  vote     Vote[]
+  // Changed "vote" to "votes" for better naming convention (one-to-many)
+  votes    Vote[]
 
   validationResult ValidationResult?
-  votesCount Int @default(0)
+  
+  // VOTING COUNTERS
+  votesCount     Int @default(0) // Net Score (Upvotes - Downvotes)
+  upvotesCount   Int @default(0) // Total "Confirmations"
+  downvotesCount Int @default(0) // Total "Disputes"
 
   userId String // Foreign Key
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([latitude, longitude])
 }
 
 // Resources Model
 model Resource {
-  id          String   @id @default(uuid())
-  category    String   // e.g., "Food", "Water", "Medicine", "Clothing"
-  itemName    String   // e.g., "Mineral Water 1L", "First Aid Kit"
-  quantity    Int      @default(0)
-  unit        String   // e.g., "bottles", "kg", "boxes", "units"
-  description String?  // e.g., "Available for immediate pickup"
-  
+  id          String  @id @default(uuid())
+  category    String // e.g., "Food", "Water", "Medicine", "Clothing"
+  itemName    String // e.g., "Mineral Water 1L", "First Aid Kit"
+  quantity    Int     @default(0)
+  unit        String // e.g., "bottles", "kg", "boxes", "units"
+  description String? // e.g., "Available for immediate pickup"
+
   // Relationship fields
-  owner       User     @relation(fields: [ownerId], references: [id])
-  ownerId     String
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  owner   User   @relation(fields: [ownerId], references: [id])
+  ownerId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Indexing ownerId and category makes searching much faster
   @@index([ownerId])
@@ -178,6 +183,9 @@ model Vote {
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, reportId])
   @@index([reportId])

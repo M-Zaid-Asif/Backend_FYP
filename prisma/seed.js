@@ -1,5 +1,5 @@
-import { PrismaClient } from '../../generated/prisma/index.js';
-import prisma from './prisma.js';
+import { PrismaClient } from '../generated/prisma/index.js';
+import prisma from '../src/constants/prisma.js';
 
 async function main() {
   const conditions = [

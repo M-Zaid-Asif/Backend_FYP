@@ -20,7 +20,7 @@ const createReport = asyncHandler(async (req, res) => {
         data: {
             title,
             description,
-            type, 
+            type,
             latitude: parseFloat(latitude),
             longitude: parseFloat(longitude),
             locationName: locationName || "Unknown Location",
@@ -40,7 +40,7 @@ const createReport = asyncHandler(async (req, res) => {
 
     if (isFlood) {
         console.log("Log 2: Triggering Validation Service...");
-        
+
         // Background process
         validateFloodReport(report.id).catch((err) => {
             console.error("CRITICAL: Background Service Failed to Start:", err.message);
@@ -54,46 +54,6 @@ const createReport = asyncHandler(async (req, res) => {
         .json(new ApiResponse(201, report, "Disaster report submitted and validation initiated."));
 });
 
-const getAllReports = asyncHandler(async (req, res) => {
-    // 1. Fetch all reports with their relations
-    const reports = await prisma.report.findMany({
-        include: {
-            user: {
-                select: {
-                    name: true,
-                    role: true
-                }
-            },
-            // Ensure lowercase 'v' to match your schema.prisma
-            validationResult: true 
-        },
-        orderBy: {
-            createdAt: 'desc'
-        }
-    });
-
-    // 2. RETROACTIVE FIX: 
-    // Loop through existing reports. If a FLOOD report is missing its 
-    // validation result (common for old reports), trigger the service now.
-    reports.forEach((report) => {
-        if (report.type === "FLOOD" && !report.validationResult) {
-            console.log(`[System] Retro-validating legacy report: ${report.id}`);
-            
-            // Fire-and-forget: validate in background
-            validateFloodReport(report.id).catch((err) => {
-                console.error(`[System] Failed to retro-validate ${report.id}:`, err.message);
-            });
-        }
-    });
-
-    // 3. Return the reports
-    // Note: The first time this runs, the validationResult might still be null in the response
-    // but because your frontend polls every 5s, the NEXT call will have the data.
-    return res
-        .status(200)
-        .json(new ApiResponse(200, reports, "All disaster reports retrieved successfully"));
-});
-
 const getReports = asyncHandler(async (req, res) => {
     const reports = await prisma.report.findMany({
         where: { userId: req.user.id },
@@ -104,6 +64,47 @@ const getReports = asyncHandler(async (req, res) => {
     return res
         .status(200)
         .json(new ApiResponse(200, reports, "User's reports retrieved successfully"));
+});
+
+const getAllReports = asyncHandler(async (req, res) => {
+    const userId = req.user?.id;
+
+    const reports = await prisma.report.findMany({
+        include: {
+            user: { select: { name: true, role: true } },
+            validationResult: true,
+            votes: userId ? {
+                where: { userId: userId },
+                select: { value: true }
+            } : false
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+
+    // Background validation for legacy reports
+    reports.forEach((report) => {
+        if (report.type === "FLOOD" && !report.validationResult) {
+            validateFloodReport(report.id).catch(() => {});
+        }
+    });
+
+    const reportsWithUserVote = reports.map(report => {
+        // Flatten user vote
+        const userVoteValue = report.votes?.[0]?.value || 0;
+        const { votes, ...rest } = report;
+
+        return {
+            ...rest,
+            userVote: userVoteValue,
+            // Sanitize counts so frontend never sees negative numbers
+            upvotesCount: Math.max(0, report.upvotesCount || 0),
+            downvotesCount: Math.max(0, report.downvotesCount || 0)
+        };
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, reportsWithUserVote, "All reports retrieved")
+    );
 });
 
 const updateReport = asyncHandler(async (req, res) => {
@@ -234,7 +235,6 @@ const addResource = asyncHandler(async (req, res) => {
         .json(new ApiResponse(201, resource, "Resource added to inventory successfully"));
 });
 
-
 const getMyResources = asyncHandler(async (req, res) => {
     const resources = await prisma.resource.findMany({
         where: { ownerId: req.user.id },
@@ -312,7 +312,7 @@ const deleteResource = asyncHandler(async (req, res) => {
 
 const toggleVote = asyncHandler(async (req, res) => {
     const { reportId } = req.params;
-    const { value } = req.body; // Expecting +1 or -1
+    const { value } = req.body; // 1 for Upvote, -1 for Downvote
     const userId = req.user.id;
 
     if (![1, -1].includes(value)) {
@@ -323,64 +323,70 @@ const toggleVote = asyncHandler(async (req, res) => {
         where: { id: reportId }
     });
 
-    if (!report) {
-        throw new ApiError(404, "Report not found");
-    }
+    if (!report) throw new ApiError(404, "Report not found");
 
     const existingVote = await prisma.vote.findUnique({
-        where: {
-            userId_reportId: { userId, reportId }
-        }
+        where: { userId_reportId: { userId, reportId } }
     });
 
     let message = "";
     let finalValue = value;
 
-    // 1. Database Transaction to update vote counts
     await prisma.$transaction(async (tx) => {
         if (existingVote) {
             if (existingVote.value === value) {
-                // SCENARIO A: Remove Vote
+                // --- SCENARIO A: UNDO VOTE ---
                 await tx.vote.delete({ where: { id: existingVote.id } });
                 await tx.report.update({
                     where: { id: reportId },
-                    data: { votesCount: { decrement: value } }
+                    data: {
+                        votesCount: { decrement: value },
+                        // Safety: Only decrement if count > 0 to prevent -1
+                        upvotesCount: (value === 1 && report.upvotesCount > 0) ? { decrement: 1 } : undefined,
+                        downvotesCount: (value === -1 && report.downvotesCount > 0) ? { decrement: 1 } : undefined,
+                    }
                 });
-                message = "Vote removed successfully";
+                message = "Vote removed";
                 finalValue = 0;
             } else {
-                // SCENARIO B: Switch Vote (+1 to -1 or vice versa)
+                // --- SCENARIO B: SWITCH VOTE ---
                 await tx.vote.update({
                     where: { id: existingVote.id },
                     data: { value: value }
                 });
+
                 await tx.report.update({
                     where: { id: reportId },
-                    data: { votesCount: { increment: value * 2 } }
+                    data: {
+                        votesCount: { increment: value * 2 },
+                        // If moving TO Upvote: Increment Up, Decrement Down (if > 0)
+                        upvotesCount: value === 1 ? { increment: 1 } : (report.upvotesCount > 0 ? { decrement: 1 } : undefined),
+                        // If moving TO Downvote: Increment Down, Decrement Up (if > 0)
+                        downvotesCount: value === -1 ? { increment: 1 } : (report.downvotesCount > 0 ? { decrement: 1 } : undefined),
+                    }
                 });
-                message = "Vote updated successfully";
+                message = "Vote switched";
             }
         } else {
-            // SCENARIO C: New Vote
-            await tx.vote.create({
-                data: { userId, reportId, value }
-            });
+            // --- SCENARIO C: BRAND NEW VOTE ---
+            await tx.vote.create({ data: { userId, reportId, value } });
             await tx.report.update({
                 where: { id: reportId },
-                data: { votesCount: { increment: value } }
+                data: {
+                    votesCount: { increment: value },
+                    // Increment the positive tally regardless of +1 or -1
+                    upvotesCount: value === 1 ? { increment: 1 } : undefined,
+                    downvotesCount: value === -1 ? { increment: 1 } : undefined,
+                }
             });
-            message = "Vote recorded successfully";
+            message = "Vote recorded";
         }
     });
 
-    // 2. IMPACT TRIGGER: Re-calculate authenticity score
-    // Since the score now depends 25% on community votes, we trigger validation.
+    // 2. IMPACT TRIGGER
     if (report.type === "FLOOD") {
-        console.log(`[Trust Engine] Re-validating report ${reportId} due to community interaction.`);
-        
-        // Background task (no await)
         validateFloodReport(reportId).catch((err) => {
-            console.error("Failed to re-validate report on vote:", err.message);
+            console.error("Validation trigger failed:", err.message);
         });
     }
 
