@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, getCurrentUser } from "../controllers/user.controller.js"
+import { registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, getCurrentUser, updateFcmToken } from "../controllers/user.controller.js"
 
 import { createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource, toggleVote } from "../controllers/report.controller.js"
 
@@ -27,6 +27,7 @@ router.route("/getUserProfile").get(verifyJWT, getCurrentUser)
 router.route("/logout").post(verifyJWT, logoutUser)
 router.route("/update").patch(verifyJWT, updateAccountDetails)
 router.route("/delete").delete(verifyJWT, deleteAccount)
+router.route("/updatefcmToken").patch(verifyJWT, updateFcmToken)
 
 // Chatbot
 router.route("/ask").post(verifyJWT, getKnowledgeChatResponse)

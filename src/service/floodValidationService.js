@@ -82,8 +82,8 @@ export const validateFloodReport = async (reportId) => {
     await prisma.$transaction([
         prisma.validationResult.upsert({
             where: { reportId },
-            update: { confidenceScore: score, decision: finalDecision, weatherMatch },
-            create: { reportId, confidenceScore: score, decision: finalDecision, weatherMatch }
+            update: { confidenceScore: score, decision: finalDecision, weatherMatch, newsMatch: false },
+            create: { reportId, confidenceScore: score, decision: finalDecision, weatherMatch, newsMatch: false }
         }),
         prisma.report.update({
             where: { id: reportId },

@@ -51,6 +51,7 @@ model User {
   comments      Comment[]
   vote          Vote[]
   resources     Resource[]
+  fcmTokens     FcmToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -189,4 +190,20 @@ model Vote {
 
   @@unique([userId, reportId])
   @@index([reportId])
+}
+
+// Firebase Token Model
+model FcmToken {
+  id         String   @id @default(uuid())
+  token      String   @unique // The unique string from Firebase
+  deviceType String?  // e.g., "web", "android", "ios"
+  
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastUsed   DateTime @default(now()) @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
 }

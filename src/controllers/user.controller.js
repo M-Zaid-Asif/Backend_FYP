@@ -141,34 +141,44 @@ const registerUser = asyncHandler(async (req, res) => {
 });
 
 const loginUser = asyncHandler(async (req, res) => {
-  // 1. Get data from req body
-  const { email, password } = req.body;
+  // 1. Get data from req body (Added fcmToken and deviceType)
+  const { email, password, fcmToken, deviceType } = req.body;
 
-  // 2. Validation
   if (!email || !password) {
     throw new ApiError(400, "Email and password are required");
   }
 
-  // 3. Find the user in Prisma
-  const user = await prisma.user.findUnique({
-    where: { email }
-  });
+  const user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) {
     throw new ApiError(404, "User does not exist");
   }
 
-  // 4. Check the password using bcrypt
   const isPasswordValid = await bcrypt.compare(password, user.password);
-
   if (!isPasswordValid) {
     throw new ApiError(401, "Invalid user credentials");
   }
 
-  // 5. Generate Access and Refresh tokens
   const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user.id);
 
-  // 6. Get user data without sensitive fields
+  // --- NEW FCM LOGIC START ---
+  // If the user provides an FCM token during login, save/update it
+  if (fcmToken) {
+    await prisma.fcmToken.upsert({
+      where: { token: fcmToken },
+      update: { 
+        userId: user.id, // Ensure the token is linked to this specific user
+        lastUsed: new Date() 
+      },
+      create: {
+        token: fcmToken,
+        userId: user.id,
+        deviceType: deviceType || "web"
+      }
+    });
+  }
+  // --- NEW FCM LOGIC END ---
+
   const loggedInUser = await prisma.user.findUnique({
     where: { id: user.id },
     select: {
@@ -180,7 +190,6 @@ const loginUser = asyncHandler(async (req, res) => {
     }
   });
 
-  // 7. Cookie Options
   const options = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -188,7 +197,6 @@ const loginUser = asyncHandler(async (req, res) => {
     path: "/"
   };
 
-  // 8. Send response
   return res
     .status(200)
     .cookie("accessToken", accessToken, options)
@@ -392,4 +400,30 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
-export { getCurrentUser, registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken };
+const updateFcmToken = asyncHandler(async (req, res) => {
+    const { fcmToken, deviceType } = req.body;
+
+    if (!fcmToken) {
+        throw new ApiError(400, "FCM Token is required");
+    }
+
+    // Upsert ensures we don't get duplicate tokens in the DB
+    await prisma.fcmToken.upsert({
+        where: { token: fcmToken },
+        update: { 
+            userId: req.user.id, // link to the logged-in user from auth middleware
+            lastUsed: new Date() 
+        },
+        create: {
+            token: fcmToken,
+            userId: req.user.id,
+            deviceType: deviceType || "web"
+        }
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, {}, "FCM Token updated successfully"));
+});
+
+export { getCurrentUser, registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, updateFcmToken };

@@ -1,13 +1,38 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import { sendDisasterAlert } from "../service/notificationService.js";
 import { validateFloodReport } from "../service/floodValidationService.js";
 import prisma from "../constants/prisma.js";
 
+async function broadcastAlert(report, type) {
+    try {
+        // Fetch all tokens
+        const allTokens = await prisma.fcmToken.findMany({ 
+            select: { token: true } 
+        });
+
+        if (allTokens.length > 0) {
+            const alertTitle = `🚨 NEW REPORT: ${type}`;
+            const alertBody = `${report.user.name} reported a ${type} at ${report.locationName}.`;
+
+            // Fire all alerts in parallel
+            const alertPromises = allTokens.map(t => 
+                sendDisasterAlert(t.token, alertTitle, alertBody)
+            );
+            
+            await Promise.all(alertPromises);
+            console.log(`--- Test Alerts sent successfully to ${allTokens.length} devices ---`);
+        }
+    } catch (error) {
+        console.error("Broadcast background error:", error.message);
+    }
+}
 
 const createReport = asyncHandler(async (req, res) => {
     const { title, description, type, latitude, longitude, locationName } = req.body;
 
+    // 1. Validation
     if ([title, description, type].some((field) => field?.trim() === "")) {
         throw new ApiError(400, "Title, description, and disaster type are required");
     }
@@ -16,6 +41,7 @@ const createReport = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Latitude and longitude coordinates are required");
     }
 
+    // 2. Create the report in DB
     const report = await prisma.report.create({
         data: {
             title,
@@ -31,27 +57,23 @@ const createReport = asyncHandler(async (req, res) => {
         }
     });
 
-    console.log("--- DEBUG: Report Created ---");
-    console.log("Log 1: ID:", report.id);
+    // 3. TRIGGER IMMEDIATE BROADCAST (Testing Phase)
+    // We do NOT use 'await' here because we want the response to be sent to the user 
+    // immediately while the alerts happen in the background.
+    broadcastAlert(report, type);
 
-    // FIX 2: More robust type checking
-    // This ensures that even if "type" is a strict Enum object, we catch it.
+    // 4. Trigger Background Validation
     const isFlood = type && type.toString().toUpperCase().includes("FLOOD");
-
     if (isFlood) {
-        console.log("Log 2: Triggering Validation Service...");
-
-        // Background process
         validateFloodReport(report.id).catch((err) => {
-            console.error("CRITICAL: Background Service Failed to Start:", err.message);
+            console.error("Validation Service Error:", err.message);
         });
-    } else {
-        console.log("Log 2: Validation skipped. Type received was:", type);
     }
 
+    // 5. Return response immediately
     return res
         .status(201)
-        .json(new ApiResponse(201, report, "Disaster report submitted and validation initiated."));
+        .json(new ApiResponse(201, report, "Report submitted and alerts are being broadcasted."));
 });
 
 const getReports = asyncHandler(async (req, res) => {
@@ -84,7 +106,7 @@ const getAllReports = asyncHandler(async (req, res) => {
     // Background validation for legacy reports
     reports.forEach((report) => {
         if (report.type === "FLOOD" && !report.validationResult) {
-            validateFloodReport(report.id).catch(() => {});
+            validateFloodReport(report.id).catch(() => { });
         }
     });
 
@@ -334,7 +356,7 @@ const toggleVote = asyncHandler(async (req, res) => {
             if (existingVote.value === value) {
                 // --- SCENARIO A: UNDO VOTE ---
                 await tx.vote.delete({ where: { id: existingVote.id } });
-                
+
                 await tx.report.update({
                     where: { id: reportId },
                     data: {
@@ -366,7 +388,7 @@ const toggleVote = asyncHandler(async (req, res) => {
         } else {
             // --- SCENARIO C: NEW VOTE ---
             await tx.vote.create({ data: { userId, reportId, value } });
-            
+
             await tx.report.update({
                 where: { id: reportId },
                 data: {
