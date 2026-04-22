@@ -7,108 +7,83 @@ const isWithinRange = (lat1, lon1, lat2, lon2, km) => {
 };
 
 export const validateFloodReport = async (reportId) => {
-  console.log(`--- Starting Validation Task: ${reportId} ---`);
-  
   try {
-    // 1. Fetch report including the new separate vote counters
-    await new Promise(resolve => setTimeout(resolve, 500));
     const report = await prisma.report.findUnique({ 
         where: { id: reportId } 
     });
     
-    if (!report) {
-        console.error("Validation Error: Report not found in database.");
-        return;
-    }
+    if (!report) return;
 
     let score = 0;
     let weatherMatch = false;
 
-    // 2. Weather Logic (Weight: 50%)
-    try {
-      const url = `${process.env.WEATHER_BASE_URL}/${report.latitude},${report.longitude}/last3days/next3days`;
-      const res = await axios.get(url, {
-        params: { unitGroup: "metric", elements: "precip", include: "days", key: process.env.WEATHER_API_KEY, contentType: "json" }
-      });
-      const totalRainfall = (res.data.days || []).reduce((sum, day) => sum + (day.precip || 0), 0);
-      console.log(`[Weather] Total Rainfall: ${totalRainfall}mm`);
-
-      if (totalRainfall >= 10) { 
-        score += 50; 
-        weatherMatch = true; 
-      }
-    } catch (err) {
-      console.error("[Weather] API unavailable, bypassing weather weight...");
-    }
-
-    // 3. Social Logic (Weight: 25%) - Only trust already VERIFIED nearby reports
-    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
-    const recentVerifiedReports = await prisma.report.findMany({
-      where: {
-        type: "FLOOD", 
-        id: { not: reportId },
-        status: "VERIFIED", 
-        createdAt: { gte: sixHoursAgo },
-      },
-    });
-
-    const nearbyCount = recentVerifiedReports.filter(r => 
-        isWithinRange(report.latitude, report.longitude, r.latitude, r.longitude, 3)
-    ).length;
-    
-    console.log(`[Social] Nearby verified reports: ${nearbyCount}`);
-
-    if (nearbyCount >= 3) score += 25;
-    else if (nearbyCount >= 1) score += 15;
-
-    // 4. Enhanced Vote Logic (Weight: 25%) - Using Consensus Ratio
     const up = report.upvotesCount || 0;
     const down = report.downvotesCount || 0;
     const totalVotes = up + down;
+    const consensusRate = totalVotes > 0 ? up / totalVotes : 0;
 
-    if (totalVotes > 0) {
-        const consensusRate = up / totalVotes; 
-        console.log(`[Community] Up: ${up}, Down: ${down}, Ratio: ${(consensusRate * 100).toFixed(1)}%`);
+    // --- BRANCH: FLOOD LOGIC ---
+    if (report.type === "FLOOD") {
+        // 1. Weather Data (50%)
+        try {
+          const url = `${process.env.WEATHER_BASE_URL}/${report.latitude},${report.longitude}/last3days/next3days`;
+          const res = await axios.get(url, {
+            params: { unitGroup: "metric", elements: "precip", key: process.env.WEATHER_API_KEY }
+          });
+          const totalRain = (res.data.days || []).reduce((sum, d) => sum + (d.precip || 0), 0);
+          if (totalRain >= 10) { score += 50; weatherMatch = true; }
+        } catch (err) { console.error("Weather API Down"); }
 
-        if (consensusRate >= 0.8 && up >= 5) {
-            // High Consensus (80%+ agreement with significant sample size)
-            score += 25;
-        } else if (consensusRate >= 0.5) {
-            // Moderate Consensus
-            score += 15;
-        } else if (consensusRate < 0.3) {
-            // High Dispute (More than 70% of people say it's fake)
-            score -= 30; 
+        // 2. Social Proof (25%) - Nearby verified reports
+        const nearby = await prisma.report.count({
+          where: {
+            type: "FLOOD",
+            status: "VERIFIED",
+            id: { not: reportId },
+            createdAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+            latitude: { gte: report.latitude - 0.03, lte: report.latitude + 0.03 },
+            longitude: { gte: report.longitude - 0.03, lte: report.longitude + 0.03 }
+          }
+        });
+        if (nearby >= 3) score += 25;
+
+        // 3. Community Voting (25%)
+        if (consensusRate >= 0.8 && up >= 5) score += 25;
+        else if (consensusRate >= 0.5) score += 10;
+    } 
+
+    // --- BRANCH: EARTHQUAKE LOGIC (Vote-Dominant) ---
+    else if (report.type === "EARTHQUAKE") {
+        // Since there's no "Weather API" for EQ, we rely 100% on high-confidence voting
+        // We require a higher threshold of 'Upvotes' to prevent prank reports
+        if (totalVotes >= 10) {
+            if (consensusRate >= 0.9) score = 100;      // Strong Consensus
+            else if (consensusRate >= 0.7) score = 80;  // High Confidence
+            else if (consensusRate >= 0.5) score = 50;  // Mixed (Needs Review)
+            else score = 10;                            // Disputed (Rejected)
+        } else {
+            // Initial phase: Not enough data yet
+            score = 40; // Keeps it in PENDING/NEEDS_REVIEW
         }
     }
 
-    // 5. Decision Mapping
+    // --- FINAL DECISION MAPPING ---
     let finalDecision = "NEEDS_REVIEW";
     let finalStatus = "PENDING";
 
-    // Thresholds: Verified at 75%+, Rejected below 25%
     if (score >= 75) {
         finalDecision = "VERIFIED";
         finalStatus = "VERIFIED";
-    } else if (score < 25) {
+    } else if (score < 30) {
         finalDecision = "REJECTED";
         finalStatus = "REJECTED";
     }
 
-    console.log(`Final Decision: ${finalDecision} | Calculated Score: ${score}%`);
-
-    // 6. Atomic Update
     await prisma.$transaction([
         prisma.validationResult.upsert({
-            where: { reportId: reportId },
-            update: { confidenceScore: Math.max(0, score), decision: finalDecision, weatherMatch },
-            create: { 
-                reportId: reportId, 
-                confidenceScore: Math.max(0, score), 
-                decision: finalDecision, 
-                weatherMatch, 
-                newsMatch: false 
-            }
+            where: { reportId },
+            update: { confidenceScore: score, decision: finalDecision, weatherMatch },
+            create: { reportId, confidenceScore: score, decision: finalDecision, weatherMatch }
         }),
         prisma.report.update({
             where: { id: reportId },
@@ -116,9 +91,7 @@ export const validateFloodReport = async (reportId) => {
         })
     ]);
 
-    console.log("!!! VALIDATION COMPLETE: DATABASE SYNCED !!!");
-
   } catch (error) {
-    console.error("CRITICAL VALIDATION ERROR:", error);
+    console.error("Validation logic failed:", error);
   }
 };

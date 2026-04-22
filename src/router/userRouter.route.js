@@ -10,8 +10,13 @@ import { getCurrentWeather, getMapConfig } from "../controllers/weather.controll
 
 import { addComment, getReportComments, deleteComment, updateComment } from "../controllers/comments.controller.js";
 
+import { explainDecision } from "../controllers/ai.controller.js";
+
 const router = Router();
 
+// Router
+router.route("/currentWeather").get(getCurrentWeather)
+router.route("/getMapConfig").get(getMapConfig)
 
 // User Routes
 router.route("/register").post(registerUser);
@@ -23,10 +28,6 @@ router.route("/logout").post(verifyJWT, logoutUser)
 router.route("/update").patch(verifyJWT, updateAccountDetails)
 router.route("/delete").delete(verifyJWT, deleteAccount)
 
-// Router
-router.route("/currentWeather").get(getCurrentWeather)
-router.route("/getMapConfig").get(getMapConfig)
-
 // Chatbot
 router.route("/ask").post(verifyJWT, getKnowledgeChatResponse)
 
@@ -36,6 +37,8 @@ router.route("/updateReport/:reportId").patch(verifyJWT, updateReport);
 router.route("/deleteReport/:reportId").delete(verifyJWT, deleteReport);
 router.route("/getReports").get(verifyJWT, getReports);
 router.route("/getAllReports").get(verifyJWT, getAllReports)
+
+router.route("/explainDecision").post(verifyJWT, explainDecision)
 
 router.route("/addResources").post(verifyJWT, addResource)
 router.route("/getResources").get(verifyJWT, getMyResources)

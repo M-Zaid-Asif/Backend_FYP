@@ -316,13 +316,10 @@ const toggleVote = asyncHandler(async (req, res) => {
     const userId = req.user.id;
 
     if (![1, -1].includes(value)) {
-        throw new ApiError(400, "Vote value must be 1 (Upvote) or -1 (Downvote)");
+        throw new ApiError(400, "Vote value must be 1 or -1");
     }
 
-    const report = await prisma.report.findUnique({
-        where: { id: reportId }
-    });
-
+    const report = await prisma.report.findUnique({ where: { id: reportId } });
     if (!report) throw new ApiError(404, "Report not found");
 
     const existingVote = await prisma.vote.findUnique({
@@ -337,19 +334,19 @@ const toggleVote = asyncHandler(async (req, res) => {
             if (existingVote.value === value) {
                 // --- SCENARIO A: UNDO VOTE ---
                 await tx.vote.delete({ where: { id: existingVote.id } });
+                
                 await tx.report.update({
                     where: { id: reportId },
                     data: {
-                        votesCount: { decrement: value },
-                        // Safety: Only decrement if count > 0 to prevent -1
-                        upvotesCount: (value === 1 && report.upvotesCount > 0) ? { decrement: 1 } : undefined,
-                        downvotesCount: (value === -1 && report.downvotesCount > 0) ? { decrement: 1 } : undefined,
+                        // Use atomic decrement: DB subtracts 1 from whatever the current value is
+                        upvotesCount: value === 1 ? { decrement: 1 } : undefined,
+                        downvotesCount: value === -1 ? { decrement: 1 } : undefined,
                     }
                 });
                 message = "Vote removed";
                 finalValue = 0;
             } else {
-                // --- SCENARIO B: SWITCH VOTE ---
+                // --- SCENARIO B: SWITCH VOTE (e.g., Up to Down) ---
                 await tx.vote.update({
                     where: { id: existingVote.id },
                     data: { value: value }
@@ -358,23 +355,21 @@ const toggleVote = asyncHandler(async (req, res) => {
                 await tx.report.update({
                     where: { id: reportId },
                     data: {
-                        votesCount: { increment: value * 2 },
-                        // If moving TO Upvote: Increment Up, Decrement Down (if > 0)
-                        upvotesCount: value === 1 ? { increment: 1 } : (report.upvotesCount > 0 ? { decrement: 1 } : undefined),
-                        // If moving TO Downvote: Increment Down, Decrement Up (if > 0)
-                        downvotesCount: value === -1 ? { increment: 1 } : (report.downvotesCount > 0 ? { decrement: 1 } : undefined),
+                        // Moving TO Upvote: Increment Up, Decrement Down
+                        upvotesCount: value === 1 ? { increment: 1 } : { decrement: 1 },
+                        // Moving TO Downvote: Increment Down, Decrement Up
+                        downvotesCount: value === -1 ? { increment: 1 } : { decrement: 1 },
                     }
                 });
                 message = "Vote switched";
             }
         } else {
-            // --- SCENARIO C: BRAND NEW VOTE ---
+            // --- SCENARIO C: NEW VOTE ---
             await tx.vote.create({ data: { userId, reportId, value } });
+            
             await tx.report.update({
                 where: { id: reportId },
                 data: {
-                    votesCount: { increment: value },
-                    // Increment the positive tally regardless of +1 or -1
                     upvotesCount: value === 1 ? { increment: 1 } : undefined,
                     downvotesCount: value === -1 ? { increment: 1 } : undefined,
                 }
@@ -383,11 +378,9 @@ const toggleVote = asyncHandler(async (req, res) => {
         }
     });
 
-    // 2. IMPACT TRIGGER
+    // Trigger validation in the background
     if (report.type === "FLOOD") {
-        validateFloodReport(reportId).catch((err) => {
-            console.error("Validation trigger failed:", err.message);
-        });
+        validateFloodReport(reportId).catch((err) => console.error("Validation failed:", err.message));
     }
 
     return res.status(200).json(
