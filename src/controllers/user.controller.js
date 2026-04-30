@@ -5,9 +5,11 @@ import prisma from "../constants/prisma.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import bcrypt from "bcrypt";
 
+// Generating Access and Refresh Token
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
-    // 1. Find the user
+
+    // Find the user
     const user = await prisma.user.findUnique({
       where: { id: userId }
     });
@@ -16,7 +18,7 @@ const generateAccessAndRefreshTokens = async (userId) => {
       throw new ApiError(404, "User not found");
     }
 
-    // 2. Generate Tokens
+    // Generate Tokens
     const accessToken = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       process.env.ACCESS_TOKEN_SECRET,
@@ -29,7 +31,7 @@ const generateAccessAndRefreshTokens = async (userId) => {
       { expiresIn: process.env.REFRESH_TOKEN_EXPIRY }
     );
 
-    // 3. Save Refresh Token to Database
+    // Save Refresh Token to Database
     await prisma.user.update({
       where: { id: userId },
       data: {
@@ -44,8 +46,10 @@ const generateAccessAndRefreshTokens = async (userId) => {
   }
 };
 
+// Get Current User
 const getCurrentUser = asyncHandler(async (req, res) => {
-  // 1. Fetch user from DB using ID from the auth middleware
+  
+  // Fetch user from DB using ID from the auth middleware
   const user = await prisma.user.findUnique({
     where: {
       id: req.user.id
@@ -62,17 +66,19 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     }
   });
 
-  // 2. Return the data
+  // Return the data
   return res
     .status(200)
     .json(new ApiResponse(200, user, "User profile fetched successfully"));
 });
 
+// Register User
 const registerUser = asyncHandler(async (req, res) => {
-  // 1. Get user details from frontend
+  
+  // Get user details from frontend
   const { name, email, password, number, role } = req.body;
 
-  // 2. Validation - not empty
+  // Validation - not empty
   if ([name, email, password].some((field) => field?.trim() === "")) {
     throw new ApiError(400, "Name, Email, and Password are required");
   }
@@ -88,7 +94,7 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Please provide a valid Pakistani mobile number (11 digits starting with 03)");
   }
 
-  // 3. Check if user already exists (Prisma findFirst with OR)
+  // Check if user already exists (Prisma findFirst with OR)
   const existedUser = await prisma.user.findFirst({
     where: {
       email: email
@@ -99,14 +105,14 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(409, "User with this email already exists");
   }
 
-  // 4. Hash the password
+  // Hash the password
   if (password.length < 6) {
     throw new ApiError(400, "Password must be at least 6 characters long");
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // 5. Create user object in DB
+  // Create user object in DB
   const user = await prisma.user.create({
     data: {
       name,
@@ -117,7 +123,7 @@ const registerUser = asyncHandler(async (req, res) => {
       refreshToken: "" // Initialize as empty
     },
 
-    // Using select here allows us to skip the second DB call!
+     // Using select here allows us to skip the second DB call!
     select: {
       id: true,
       name: true,
@@ -129,19 +135,21 @@ const registerUser = asyncHandler(async (req, res) => {
     }
   });
 
-  // 6. Check for successful user creation
+  // Check for successful user creation
   if (!user) {
     throw new ApiError(500, "Something went wrong while registering the user");
   }
 
-  // 7. Return response
+  // Return response
   return res.status(201).json(
     new ApiResponse(201, user, "User registered successfully")
   );
 });
 
+// Log In User
 const loginUser = asyncHandler(async (req, res) => {
-  // 1. Get data from req body (Added fcmToken and deviceType)
+  
+  // Get data from req body (Added fcmToken and deviceType)
   const { email, password, fcmToken, deviceType } = req.body;
 
   if (!email || !password) {
@@ -210,8 +218,10 @@ const loginUser = asyncHandler(async (req, res) => {
     );
 });
 
+// Logout User
 const logoutUser = asyncHandler(async (req, res) => {
-  // 1. Update user in DB to remove the refresh token
+ 
+  // Update user in DB to remove the refresh token
   await prisma.user.update({
     where: { id: req.user.id },
     data: {
@@ -219,13 +229,13 @@ const logoutUser = asyncHandler(async (req, res) => {
     }
   });
 
-  // 2. Cookie Options
+  // Cookie Options
   const options = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production"
   };
 
-  // 3. Clear cookies and send response
+  // Clear cookies and send response
   return res
     .status(200)
     .clearCookie("accessToken", options)
@@ -233,10 +243,11 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "User logged out successfully"));
 });
 
+// Update Account Details
 const updateAccountDetails = asyncHandler(async (req, res) => {
   const { name, email, number, password } = req.body;
 
-  // 1. Validation: Ensure at least one field is provided
+  // Validation: Ensure at least one field is provided
   if (!name && !email && !number && !password) {
     throw new ApiError(400, "At least one field is required to update");
   }
@@ -254,7 +265,7 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
 
   const updateData = {};
 
-  // 2. Handle Name Update
+  // Handle Name Update
   if (name) {
     // Regex allows letters, spaces, hyphens, and apostrophes
     const nameRegex = /^[a-zA-Z\s\-']+$/;
@@ -264,7 +275,7 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     updateData.name = name;
   }
 
-  // 3. Handle Email Update (Check for duplicates)
+  // Handle Email Update (Check for duplicates)
   if (email) {
     const existingUser = await prisma.user.findUnique({
       where: { email }
@@ -277,12 +288,12 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     updateData.email = email;
   }
 
-  // 4. Handle Phone Number
+  // Handle Phone Number
   if (number !== undefined) {
     updateData.number = number;
   }
 
-  // 5. Handle Password Update (Hash before saving)
+  // Handle Password Update (Hash before saving)
   if (password) {
     if (password.length < 6) {
       throw new ApiError(400, "Password must be at least 6 characters long");
@@ -290,7 +301,7 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     updateData.password = await bcrypt.hash(password, 10);
   }
 
-  // 6. Update in Database
+  // Update in Database
   const updatedUser = await prisma.user.update({
     where: {
       id: req.user.id
@@ -306,17 +317,19 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     }
   });
 
-  // 7. Return Response
+  // Return Response
   return res
     .status(200)
     .json(new ApiResponse(200, updatedUser, "Account details updated successfully"));
 });
 
+// Delete Account
 const deleteAccount = asyncHandler(async (req, res) => {
-  // 1. Identify the user
+  
+  // Identify the user
   const userId = req.user.id;
 
-  // 2. Check if user exists
+  // Check if user exists
   const user = await prisma.user.findUnique({
     where: { id: userId }
   });
@@ -325,14 +338,14 @@ const deleteAccount = asyncHandler(async (req, res) => {
     throw new ApiError(404, "User not found");
   }
 
-  // 3. Delete the user from the database
+  // Delete the user from the database
   await prisma.user.delete({
     where: {
       id: userId
     }
   });
 
-  // 4. Clear the cookies after deletion
+  // Clear the cookies after deletion
   const options = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production"
@@ -345,8 +358,9 @@ const deleteAccount = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "Account deleted successfully"));
 });
 
+// Refresh Token
 const refreshAccessToken = asyncHandler(async (req, res) => {
-  // 1. Get the refresh token from cookies
+  // Get the refresh token from cookies
   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
 
   if (!incomingRefreshToken) {
@@ -354,13 +368,13 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    // 2. Verify the token using the Refresh Secret
+    // Verify the token using the Refresh Secret
     const decodedToken = jwt.verify(
       incomingRefreshToken,
       process.env.REFRESH_TOKEN_SECRET
     );
 
-    // 3. Find the user in the database
+    // Find the user in the database
     const user = await prisma.user.findUnique({
       where: { id: decodedToken?.id }
     });
@@ -369,15 +383,15 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       throw new ApiError(401, "Invalid refresh token: User not found");
     }
 
-    // 4. Security Check: Compare the incoming token with the one stored in DB
+    // Security Check: Compare the incoming token with the one stored in DB
     if (incomingRefreshToken !== user.refreshToken) {
       throw new ApiError(401, "Refresh token is expired or used");
     }
 
-    // 5. Generate NEW tokens (reuse your helper function)
+    // Generate NEW tokens (reuse your helper function)
     const { accessToken, refreshToken: newRefreshToken } = await generateAccessAndRefreshTokens(user.id);
 
-    // 6. Set updated cookies
+    // Set updated cookies
     const options = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production"
@@ -400,6 +414,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
+// FCM Token Update
 const updateFcmToken = asyncHandler(async (req, res) => {
     const { fcmToken, deviceType } = req.body;
 

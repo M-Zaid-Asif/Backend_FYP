@@ -63,8 +63,8 @@ const deleteComment = asyncHandler(async (req, res) => {
 
     if (!comment) throw new ApiError(404, "Comment not found");
 
-    // Authorization: Only the owner of the comment or an ADMIN can delete it
-    if (comment.userId !== req.user.id && req.user.role !== "ADMIN") {
+    // Authorization: Only the owner of the comment can delete it
+    if (comment.userId !== req.user.id) {
         throw new ApiError(403, "You are not authorized to delete this comment");
     }
 

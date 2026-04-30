@@ -3,6 +3,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
 
+// Weather Information
 const getCurrentWeather = asyncHandler(async (req, res) => {
     const { lat, lon, city } = req.query;
     const apiKey = process.env.WEATHER_API_KEY;
@@ -21,7 +22,7 @@ const getCurrentWeather = asyncHandler(async (req, res) => {
         const weatherRes = await axios.get(weatherUrl);
         const weatherData = weatherRes.data;
 
-        // 1. Reverse Geocoding
+        // Reverse Geocoding
         let cityName = city || "Islamabad"; 
         if (lat && lon) {
             try {
@@ -39,7 +40,7 @@ const getCurrentWeather = asyncHandler(async (req, res) => {
             throw new ApiError(404, "Weather data unavailable from provider.");
         }
 
-        // 2. Map Current Data (Added humidity and precip)
+        // Map Current Data (Added humidity and precip)
         const currentData = {
             location: cityName,
             temp: weatherData.currentConditions.temp ?? 0,
@@ -49,9 +50,9 @@ const getCurrentWeather = asyncHandler(async (req, res) => {
             precip: weatherData.currentConditions.precip ?? 0, // Current rain intensity
         };
 
-        // 3. Map Forecast Data (Added precip, precipprob, tempmax, and feelslike)
+        // Map Forecast Data
         const forecastData = (weatherData.days || []).slice(0, 7).map(day => ({
-            datetime: day.datetime, // Keep naming consistent with frontend date-fns
+            datetime: day.datetime,
             temp: day.temp ?? 0,
             tempmax: day.tempmax ?? 0,
             feelslike: day.feelslike ?? 0,
@@ -76,14 +77,17 @@ const getCurrentWeather = asyncHandler(async (req, res) => {
     }
 });
 
+// Map Configuration
 const getMapConfig = asyncHandler(async (req, res) => {
     const { lat, lon } = req.query;
 
     const config = {
+
         // Center coordinates [lat, lng]
         center: [parseFloat(lat) || 33.6844, parseFloat(lon) || 73.0479],
         zoom: 13,
-        // Using CartoDB Dark Matter tiles (Free & looks great for weather apps)
+
+        // Using CartoDB Dark Matter tiles
         tileUrl: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
         attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     };

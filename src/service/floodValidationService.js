@@ -24,7 +24,8 @@ export const validateFloodReport = async (reportId) => {
 
     // --- BRANCH: FLOOD LOGIC ---
     if (report.type === "FLOOD") {
-        // 1. Weather Data (50%)
+
+        // Weather Data (50%)
         try {
           const url = `${process.env.WEATHER_BASE_URL}/${report.latitude},${report.longitude}/last3days/next3days`;
           const res = await axios.get(url, {
@@ -34,7 +35,7 @@ export const validateFloodReport = async (reportId) => {
           if (totalRain >= 10) { score += 50; weatherMatch = true; }
         } catch (err) { console.error("Weather API Down"); }
 
-        // 2. Social Proof (25%) - Nearby verified reports
+        // Social Proof (25%) - Nearby verified reports
         const nearby = await prisma.report.count({
           where: {
             type: "FLOOD",
@@ -47,13 +48,14 @@ export const validateFloodReport = async (reportId) => {
         });
         if (nearby >= 3) score += 25;
 
-        // 3. Community Voting (25%)
+        // Community Voting (25%)
         if (consensusRate >= 0.8 && up >= 5) score += 25;
         else if (consensusRate >= 0.5) score += 10;
     } 
 
     // --- BRANCH: EARTHQUAKE LOGIC (Vote-Dominant) ---
     else if (report.type === "EARTHQUAKE") {
+
         // Since there's no "Weather API" for EQ, we rely 100% on high-confidence voting
         // We require a higher threshold of 'Upvotes' to prevent prank reports
         if (totalVotes >= 10) {
@@ -62,6 +64,7 @@ export const validateFloodReport = async (reportId) => {
             else if (consensusRate >= 0.5) score = 50;  // Mixed (Needs Review)
             else score = 10;                            // Disputed (Rejected)
         } else {
+          
             // Initial phase: Not enough data yet
             score = 40; // Keeps it in PENDING/NEEDS_REVIEW
         }

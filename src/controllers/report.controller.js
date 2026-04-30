@@ -5,11 +5,12 @@ import { sendDisasterAlert } from "../service/notificationService.js";
 import { validateFloodReport } from "../service/floodValidationService.js";
 import prisma from "../constants/prisma.js";
 
+// Function for Broadcasting Alerts.
 async function broadcastAlert(report, type) {
     try {
         // Fetch all tokens
-        const allTokens = await prisma.fcmToken.findMany({ 
-            select: { token: true } 
+        const allTokens = await prisma.fcmToken.findMany({
+            select: { token: true }
         });
 
         if (allTokens.length > 0) {
@@ -17,22 +18,22 @@ async function broadcastAlert(report, type) {
             const alertBody = `${report.user.name} reported a ${type} at ${report.locationName}.`;
 
             // Fire all alerts in parallel
-            const alertPromises = allTokens.map(t => 
+            const alertPromises = allTokens.map(t =>
                 sendDisasterAlert(t.token, alertTitle, alertBody)
             );
-            
+
             await Promise.all(alertPromises);
-            console.log(`--- Test Alerts sent successfully to ${allTokens.length} devices ---`);
         }
     } catch (error) {
         console.error("Broadcast background error:", error.message);
     }
 }
 
+// 1. Creating a Report
 const createReport = asyncHandler(async (req, res) => {
     const { title, description, type, latitude, longitude, locationName } = req.body;
 
-    // 1. Validation
+    // Report Validation
     if ([title, description, type].some((field) => field?.trim() === "")) {
         throw new ApiError(400, "Title, description, and disaster type are required");
     }
@@ -41,7 +42,7 @@ const createReport = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Latitude and longitude coordinates are required");
     }
 
-    // 2. Create the report in DB
+    // Create the report in DB
     const report = await prisma.report.create({
         data: {
             title,
@@ -57,16 +58,21 @@ const createReport = asyncHandler(async (req, res) => {
         }
     });
 
-    // 3. TRIGGER IMMEDIATE BROADCAST (Testing Phase)
-    // We do NOT use 'await' here because we want the response to be sent to the user 
-    // immediately while the alerts happen in the background.
+    // Calling broadcastAlert Function
     broadcastAlert(report, type);
 
-    // 4. Trigger Background Validation
-    const isFlood = type && type.toString().toUpperCase().includes("FLOOD");
+    // Trigger Background Validation
+    const typeUpper = type?.toString().toUpperCase() || "";
+    const isFlood = typeUpper.includes("FLOOD");
+    const isEarthquake = typeUpper.includes("EARTHQUAKE");
+
     if (isFlood) {
         validateFloodReport(report.id).catch((err) => {
-            console.error("Validation Service Error:", err.message);
+            console.error("Flood Validation Error:", err.message);
+        });
+    } else if (isEarthquake) {
+        validateFloodReport(report.id).catch((err) => {
+            console.error("Earthquake Validation Error:", err.message);
         });
     }
 
@@ -76,6 +82,7 @@ const createReport = asyncHandler(async (req, res) => {
         .json(new ApiResponse(201, report, "Report submitted and alerts are being broadcasted."));
 });
 
+// 2. Get a Report
 const getReports = asyncHandler(async (req, res) => {
     const reports = await prisma.report.findMany({
         where: { userId: req.user.id },
@@ -88,6 +95,7 @@ const getReports = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, reports, "User's reports retrieved successfully"));
 });
 
+// 3. Get All Reports
 const getAllReports = asyncHandler(async (req, res) => {
     const userId = req.user?.id;
 
@@ -103,9 +111,15 @@ const getAllReports = asyncHandler(async (req, res) => {
         orderBy: { createdAt: 'desc' }
     });
 
-    // Background validation for legacy reports
+    // Background validation for legacy/unvalidated reports
     reports.forEach((report) => {
+        // 1. Handle Floods
         if (report.type === "FLOOD" && !report.validationResult) {
+            validateFloodReport(report.id).catch(() => { });
+        }
+
+        // 2. Handle Earthquakes
+        if (report.type === "EARTHQUAKE" && !report.validationResult) {
             validateFloodReport(report.id).catch(() => { });
         }
     });
@@ -118,7 +132,6 @@ const getAllReports = asyncHandler(async (req, res) => {
         return {
             ...rest,
             userVote: userVoteValue,
-            // Sanitize counts so frontend never sees negative numbers
             upvotesCount: Math.max(0, report.upvotesCount || 0),
             downvotesCount: Math.max(0, report.downvotesCount || 0)
         };
@@ -129,16 +142,17 @@ const getAllReports = asyncHandler(async (req, res) => {
     );
 });
 
+// 4. Updating a Report
 const updateReport = asyncHandler(async (req, res) => {
     if (!req.body) {
         throw new ApiError(400, "Request body is missing");
     }
 
-    // 1. Extract report ID from URL and data from body
+    // Extract report ID from URL and data from body
     const { reportId } = req.params;
     const { title, description, type, latitude, longitude, locationName } = req.body;
 
-    // 2. Find the existing report first to check ownership
+    // Find the existing report first to check ownership
     const existingReport = await prisma.report.findUnique({
         where: { id: reportId }
     });
@@ -147,12 +161,12 @@ const updateReport = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Report not found");
     }
 
-    // 3. Authorization Check: Only the creator (or an Admin) can edit the report
-    if (existingReport.userId !== req.user.id && req.user.role !== "ADMIN") {
+    // Authorization Check: Only the creator (or an Admin) can edit the report
+    if (existingReport.userId !== req.user.id) {
         throw new ApiError(403, "You do not have permission to update this report");
     }
 
-    // 4. Prepare Dynamic Update Object
+    // Prepare Dynamic Update Object
     const updateData = {};
     if (title) updateData.title = title;
     if (description) updateData.description = description;
@@ -163,7 +177,7 @@ const updateReport = asyncHandler(async (req, res) => {
     if (latitude !== undefined) updateData.latitude = parseFloat(latitude);
     if (longitude !== undefined) updateData.longitude = parseFloat(longitude);
 
-    // 5. Update in Database
+    // Update in Database
     const updatedReport = await prisma.report.update({
         where: { id: reportId },
         data: updateData,
@@ -182,29 +196,30 @@ const updateReport = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, updatedReport, "Report updated successfully"));
 });
 
+// 5. Deleting a Report
 const deleteReport = asyncHandler(async (req, res) => {
-    // 1. Extract the reportId from the URL params
+    // Extract the reportId from the URL params
     const { reportId } = req.params;
 
-    // 2. Find the report to check ownership
+    // Find the report to check ownership
     const report = await prisma.report.findUnique({
         where: { id: reportId }
     });
 
-    // 3. Check if report exists
+    // Check if report exists
     if (!report) {
         throw new ApiError(404, "Report not found");
     }
 
-    // 4. Authorization: Only the owner or an Admin can delete
+    // Authorization: Only the owner or an Admin can delete
     // Note: req.user.id and req.user.role come from your verifyJWT middleware
-    if (report.userId !== req.user.id && req.user.role !== "ADMIN") {
+    if (report.userId !== req.user.id) {
         throw new ApiError(403, "You do not have permission to delete this report");
     }
 
-    // 5. Delete the report
-    // Because of your 'onDelete: Cascade' in Prisma, 
-    // this will also remove associated comments/votes if configured.
+    // Delete the report
+    // Because of our 'onDelete: Cascade' in Prisma, 
+    // this will also remove associated comments/votes.
     await prisma.report.delete({
         where: { id: reportId }
     });
@@ -214,21 +229,22 @@ const deleteReport = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "Report deleted successfully"));
 });
 
+// 6. Adding Resource
 const addResource = asyncHandler(async (req, res) => {
-    // 1. Authorization: Only NGOs can manage inventory
+    // Authorization: Only NGOs can manage inventory
     if (req.user.role !== "NGO") {
         throw new ApiError(403, "Access denied. Only NGOs can populate resources.");
     }
 
-    // 2. Destructure fields from body
+    // Destructure fields from body
     const { category, itemName, quantity, unit, description } = req.body;
 
-    // 3. Validation: Mandatory fields
+    // Validation: Mandatory fields
     if (!category || !itemName || quantity === undefined) {
         throw new ApiError(400, "Category, Item Name, and Quantity are mandatory.");
     }
 
-    // 4. Create Resource in Prisma
+    // Create Resource in Prisma
     // Note: unit and description are optional as per our schema
     const resource = await prisma.resource.create({
         data: {
@@ -251,12 +267,13 @@ const addResource = asyncHandler(async (req, res) => {
         }
     });
 
-    // 5. Success Response
+    // Success Response
     return res
         .status(201)
         .json(new ApiResponse(201, resource, "Resource added to inventory successfully"));
 });
 
+// 7. NGO Resources Retrieval
 const getMyResources = asyncHandler(async (req, res) => {
     const resources = await prisma.resource.findMany({
         where: { ownerId: req.user.id },
@@ -268,11 +285,12 @@ const getMyResources = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, resources, "NGO inventory retrieved"));
 });
 
+// 8. Updating Resources
 const updateResource = asyncHandler(async (req, res) => {
     const { resourceId } = req.params;
     const { category, itemName, quantity, unit, description } = req.body;
 
-    // 1. Find the resource to check if it exists and who owns it
+    // Find the resource to check if it exists and who owns it
     const resource = await prisma.resource.findUnique({
         where: { id: resourceId }
     });
@@ -281,12 +299,12 @@ const updateResource = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Resource not found");
     }
 
-    // 2. Authorization: Check if the logged-in user owns this resource
+    // Authorization: Check if the logged-in user owns this resource
     if (resource.ownerId !== req.user.id) {
         throw new ApiError(403, "You do not have permission to update this resource");
     }
 
-    // 3. Prepare data for update (Optional fields handling)
+    // Prepare data for update (Optional fields handling)
     const updateData = {};
     if (category) updateData.category = category;
     if (itemName) updateData.itemName = itemName;
@@ -294,7 +312,7 @@ const updateResource = asyncHandler(async (req, res) => {
     if (unit !== undefined) updateData.unit = unit;
     if (description !== undefined) updateData.description = description;
 
-    // 4. Update in Database
+    // Update in Database
     const updatedResource = await prisma.resource.update({
         where: { id: resourceId },
         data: updateData
@@ -305,10 +323,11 @@ const updateResource = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, updatedResource, "Resource updated successfully"));
 });
 
+// 9. Deleting Resources
 const deleteResource = asyncHandler(async (req, res) => {
     const { resourceId } = req.params;
 
-    // 1. Find the resource
+    // Find the resource
     const resource = await prisma.resource.findUnique({
         where: { id: resourceId }
     });
@@ -317,12 +336,12 @@ const deleteResource = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Resource not found");
     }
 
-    // 2. Authorization: Only the owner can delete
+    // Authorization: Only the owner can delete
     if (resource.ownerId !== req.user.id) {
         throw new ApiError(403, "You do not have permission to delete this resource");
     }
 
-    // 3. Delete from DB
+    // Delete from DB
     await prisma.resource.delete({
         where: { id: resourceId }
     });
@@ -332,6 +351,7 @@ const deleteResource = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "Resource removed from inventory"));
 });
 
+// 10. Toggle Vote
 const toggleVote = asyncHandler(async (req, res) => {
     const { reportId } = req.params;
     const { value } = req.body; // 1 for Upvote, -1 for Downvote
@@ -354,6 +374,7 @@ const toggleVote = asyncHandler(async (req, res) => {
     await prisma.$transaction(async (tx) => {
         if (existingVote) {
             if (existingVote.value === value) {
+
                 // --- SCENARIO A: UNDO VOTE ---
                 await tx.vote.delete({ where: { id: existingVote.id } });
 
@@ -368,6 +389,7 @@ const toggleVote = asyncHandler(async (req, res) => {
                 message = "Vote removed";
                 finalValue = 0;
             } else {
+
                 // --- SCENARIO B: SWITCH VOTE (e.g., Up to Down) ---
                 await tx.vote.update({
                     where: { id: existingVote.id },
@@ -379,6 +401,7 @@ const toggleVote = asyncHandler(async (req, res) => {
                     data: {
                         // Moving TO Upvote: Increment Up, Decrement Down
                         upvotesCount: value === 1 ? { increment: 1 } : { decrement: 1 },
+
                         // Moving TO Downvote: Increment Down, Decrement Up
                         downvotesCount: value === -1 ? { increment: 1 } : { decrement: 1 },
                     }
@@ -386,6 +409,7 @@ const toggleVote = asyncHandler(async (req, res) => {
                 message = "Vote switched";
             }
         } else {
+
             // --- SCENARIO C: NEW VOTE ---
             await tx.vote.create({ data: { userId, reportId, value } });
 
@@ -401,8 +425,16 @@ const toggleVote = asyncHandler(async (req, res) => {
     });
 
     // Trigger validation in the background
-    if (report.type === "FLOOD") {
-        validateFloodReport(reportId).catch((err) => console.error("Validation failed:", err.message));
+    const reportType = report.type.toUpperCase();
+
+    if (reportType.includes("FLOOD")) {
+        validateFloodReport(reportId).catch((err) =>
+            console.error("Flood Validation failed:", err.message)
+        );
+    } else if (reportType.includes("EARTHQUAKE")) {
+        validateFloodReport(reportId).catch((err) =>
+            console.error("Earthquake Validation failed:", err.message)
+        );
     }
 
     return res.status(200).json(

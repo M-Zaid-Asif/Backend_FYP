@@ -62,16 +62,15 @@ model Report {
   id          String       @id @default(uuid())
   title       String
   description String
-  type        DisasterType @default(FLOOD)
 
   latitude     Float
   longitude    Float
   locationName String?
 
   status ReportStatus @default(PENDING)
+  type   DisasterType @default(FLOOD)
 
   comments Comment[]
-  // Changed "vote" to "votes" for better naming convention (one-to-many)
   votes    Vote[]
 
   validationResult ValidationResult?
@@ -93,10 +92,10 @@ model Report {
 // Resources Model
 model Resource {
   id          String  @id @default(uuid())
-  category    String // e.g., "Food", "Water", "Medicine", "Clothing"
-  itemName    String // e.g., "Mineral Water 1L", "First Aid Kit"
+  category    String  // e.g., "Food", "Water", "Medicine", "Clothing"
+  itemName    String  // e.g., "Mineral Water 1L", "First Aid Kit"
   quantity    Int     @default(0)
-  unit        String // e.g., "bottles", "kg", "boxes", "units"
+  unit        String  // e.g., "bottles", "kg", "boxes", "units"
   description String? // e.g., "Available for immediate pickup"
 
   // Relationship fields
@@ -106,7 +105,6 @@ model Resource {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Indexing ownerId and category makes searching much faster
   @@index([ownerId])
   @@index([category])
 }
@@ -114,11 +112,12 @@ model Resource {
 // Conditions Model
 model Condition {
   id               String   @id @default(uuid())
-  title            String   @unique // e.g., "Drowning", "Choking"
+  title            String   @unique  // e.g., "Drowning", "Choking"
   description      String?  @db.Text
   recoveryPosition String?  @db.Text
   steps            String   @db.Text // Store steps as a long string or JSON
   precautions      String?  @db.Text
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
@@ -196,7 +195,7 @@ model Vote {
 model FcmToken {
   id         String   @id @default(uuid())
   token      String   @unique // The unique string from Firebase
-  deviceType String?  // e.g., "web", "android", "ios"
+  deviceType String?          // e.g., "web", "android", "ios"
   
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)

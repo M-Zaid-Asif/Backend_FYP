@@ -3,7 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Initialize Gemini with the 2026-standard SDK
+// Initializing the Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export const explainDecision = asyncHandler(async (req, res) => {
@@ -13,21 +13,20 @@ export const explainDecision = asyncHandler(async (req, res) => {
         throw new ApiError(400, "No report data found in request body");
     }
 
-    // Set a strict 8-second timeout to prevent UI hangs
+    // Setting a strict 8-second timeout to prevent UI hangs
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     try {
-        // Switch to gemini-3.1-flash-lite-preview: The 2026 low-latency standard
+        // Using gemini-3.1-flash-lite-preview
         const model = genAI.getGenerativeModel({ 
             model: "gemini-3.1-flash-lite-preview", 
             generationConfig: {
-                maxOutputTokens: 40,
-                temperature: 0.3, // Lower temperature = more consistent logic
+                maxOutputTokens: 40, // Limiting the response
+                temperature: 0.3,    // Lower temperature, more consistent logic
             },
         });
 
-        // REFINED PROMPT: Forces analytical reasoning over status repetition
         const prompt = `
         Context: Disaster Report Verification System.
         Input Data:

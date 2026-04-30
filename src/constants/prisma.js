@@ -3,7 +3,7 @@ import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma/index.js';
 
-// 1. Setup connection
+// Setup connection
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
@@ -22,7 +22,7 @@ async function connectDB() {
 
 connectDB();
 
-// 2. Disconnect Logic
+// Disconnect Logic
 const gracefulShutdown = async (signal) => {
   console.log(`\nReceived ${signal}. Shutting down...`);
   
