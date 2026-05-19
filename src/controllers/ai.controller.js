@@ -13,34 +13,28 @@ export const explainDecision = asyncHandler(async (req, res) => {
         throw new ApiError(400, "No report data found in request body");
     }
 
-    // Setting a strict 8-second timeout to prevent UI hangs
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
-        // Using gemini-3.1-flash-lite-preview
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-3.1-flash-lite-preview", 
+        const model = genAI.getGenerativeModel({
+            model: "gemini-3.1-flash-lite-preview",
             generationConfig: {
-                maxOutputTokens: 40, // Limiting the response
-                temperature: 0.3,    // Lower temperature, more consistent logic
+                maxOutputTokens: 40,
+                temperature: 0.3,
             },
         });
 
-        const prompt = `
-        Context: Disaster Report Verification System.
-        Input Data:
-        - Disaster: ${report.type}
-        - Current Status: ${report.status}
-        - User Support: ${report.upvotesCount} Up / ${report.downvotesCount} Down
+        // Refined prompt to reflect your validation logic
+        const prompt = `Context: Disaster Report Verification System (FAEAS).
+        Input: ${report.type}, Status: ${report.status}, Votes: ${report.upvotesCount}U/${report.downvotesCount}D.
 
-        Objective: Audit the relationship between user votes and system status.
-        Rules:
-        1. If Status=REJECTED but Upvotes > 10, cite "potential misinformation" or "duplicate entry."
-        2. If Status=VERIFIED but Upvotes < 3, cite "sensor-based confirmation."
-        3. Never repeat the status as its own justification.
+        Rules: 
+        1. Floods: Verified via 3-day temporal weather buffer (1 day before/after report), social proof, and votes.
+        2. Earthquakes: Verified via real-time community consensus and voting patterns.
 
-        Response: One concise sentence (max 10 words).`;
+        Objective: Audit the relationship between inputs and status.
+        Response: Two concise sentences (max 20 words) explaining the specific validation logic.`;
 
         const result = await model.generateContent(prompt, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -54,14 +48,28 @@ export const explainDecision = asyncHandler(async (req, res) => {
     } catch (error) {
         clearTimeout(timeoutId);
         console.error("Gemini Audit Error:", error.message);
-        
-        // Logical Fallback: Provides a smarter reason even if the API fails
-        const fallbackReason = report.status === "REJECTED" 
-            ? "Report rejected due to low source reliability or duplication."
-            : "Verification confirmed via cross-referenced satellite and sensor data.";
+
+        // --- INTEGRATED FALLBACK LOGIC ---
+        const isFlood = report.type?.toUpperCase().includes("FLOOD");
+        const status = report.status;
+        let explanation = "";
+
+        if (status === "NEEDS_REVIEW") {
+            explanation = isFlood
+                ? "Flood report requires additional sensor data and further community metrics."
+                : "Earthquake report requires more user votes for verification";
+        } else if (status === "REJECTED") {
+            explanation = isFlood
+                ? "Report rejected due to lack of weather API correlation."
+                : "Report rejected due to low community trust.";
+        } else {
+            explanation = isFlood
+                ? "Verification confirmed via weather APIs and social proof."
+                : "Verification confirmed via high-confidence community consensus.";
+        }
 
         return res.status(200).json(
-            new ApiResponse(200, { explanation: fallbackReason }, "Fallback applied")
+            new ApiResponse(200, { explanation }, "Fallback applied due to API error")
         );
     }
 });
