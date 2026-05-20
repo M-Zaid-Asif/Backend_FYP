@@ -1,9 +1,11 @@
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
+import prisma from "../constants/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js"
-import prisma from "../constants/prisma.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import bcrypt from "bcrypt";
+import { sendEmail } from "../utils/sendEmail.js";
 
 // Generating Access and Refresh Token
 const generateAccessAndRefreshTokens = async (userId) => {
@@ -45,6 +47,117 @@ const generateAccessAndRefreshTokens = async (userId) => {
     throw new ApiError(500, "Something went wrong while generating tokens");
   }
 };
+
+// Reset Password Request
+const requestPasswordReset = asyncHandler(async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        throw new ApiError(400, "Email field is required");
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    
+    // Security Best Practice: Don't explicitly reveal if an email doesn't exist 
+    // to prevent user-enumeration attacks.
+    if (!user) {
+        return res.status(200).json(
+            new ApiResponse(200, {}, "If an account exists with that email, a secure reset link has been sent.")
+        );
+    }
+
+    // 1. Generate a raw, secure random token (this goes to the user's email link)
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    // 2. Hash the token immediately (this goes into the database to protect it)
+    const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+
+    // 3. Set expiration window (Strict 15 minutes from right now)
+    const tokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
+
+    // 4. Persist tracking records to the user profile
+    await prisma.user.update({
+        where: { email },
+        data: {
+            resetPasswordToken: hashedToken,
+            resetPasswordExpiry: tokenExpiry
+        }
+    });
+
+    // 5. Build dynamic endpoint path targeting your Frontend deployment port
+    const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password/${resetToken}`;
+
+    const message = `You are receiving this email because you (or someone else) requested a password reset for your FAEAS account.\n\nPlease click on the following link, or paste it into your browser to complete the process within 15 minutes:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email and your password will remain unchanged.`;
+
+    try {
+        // Hand off tracking values to your Mailtrap utility package
+        await sendEmail({
+            email: user.email,
+            subject: "FAEAS Account Security - Password Reset Request",
+            message
+        });
+
+        return res.status(200).json(
+            new ApiResponse(200, {}, "Secure password reset link dispatched to your mailbox.")
+        );
+    } catch (error) {
+        console.error("Mail Dispatch Failure:", error);
+        
+        // Anti-Stall Cleanup: If email fails mid-transit, wipe database values so the lifecycle resets cleanly
+        await prisma.user.update({
+            where: { email },
+            data: { 
+                resetPasswordToken: null, 
+                resetPasswordExpiry: null 
+            }
+        });
+        throw new ApiError(500, "Failed to send reset email. Emergency dispatch down, please try again later.");
+    }
+});
+
+// Reset Password Controller
+const resetPassword = asyncHandler(async (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+        throw new ApiError(400, "New password is required");
+    }
+
+    // 1. Hash incoming parameter token to see if it matches our encrypted database entry
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    // 2. Find user where the token matches AND expiration date is greater than/equal to current time
+    const user = await prisma.user.findFirst({
+        where: {
+            resetPasswordToken: hashedToken,
+            resetPasswordExpiry: {
+                gte: new Date() // Checks that expiry window hasn't passed
+            }
+        }
+    });
+
+    if (!user) {
+        throw new ApiError(400, "The password reset token is invalid or has expired.");
+    }
+
+    // 3. Encrypt the incoming fresh string criteria using bcrypt
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 4. Update core password and purge temporary validation tokens cleanly from row tracking
+    await prisma.user.update({
+        where: { id: user.id },
+        data: {
+            password: hashedPassword,
+            resetPasswordToken: null,
+            resetPasswordExpiry: null
+        }
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, {}, "Password updated successfully. You can now log in with your new credentials.")
+    );
+});
 
 // Get Current User
 const getCurrentUser = asyncHandler(async (req, res) => {
@@ -441,4 +554,4 @@ const updateFcmToken = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "FCM Token updated successfully"));
 });
 
-export { getCurrentUser, registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, updateFcmToken };
+export { getCurrentUser, registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, updateFcmToken, resetPassword, requestPasswordReset };
