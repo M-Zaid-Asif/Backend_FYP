@@ -2,7 +2,7 @@ import { Router } from "express"
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { registerUser, loginUser, logoutUser, updateAccountDetails, deleteAccount, refreshAccessToken, getCurrentUser, updateFcmToken, resetPassword, requestPasswordReset } from "../controllers/user.controller.js"
 
-import { createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource, toggleVote } from "../controllers/report.controller.js"
+import { createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, deleteResource, updateResource, toggleVote, dispatchResource, getMyDispatchHistory } from "../controllers/report.controller.js"
 
 import { getKnowledgeChatResponse } from "../controllers/chatbot.controller.js";
 
@@ -50,6 +50,8 @@ router.route("/getResources").get(verifyJWT, getMyResources)
 router.route("/deleteResource/:resourceId").delete(verifyJWT, deleteResource)
 router.route("/updateResource/:resourceId").patch(verifyJWT, updateResource)
 
+router.route("/dispatch").post(verifyJWT, dispatchResource);
+router.route("/dispatch-history").get(verifyJWT, getMyDispatchHistory);
 
 // Route for a specific report (Getting all comments or adding a new one)
 router.route("/:reportId")

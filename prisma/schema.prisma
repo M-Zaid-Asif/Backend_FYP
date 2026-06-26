@@ -62,7 +62,7 @@ model User {
 
 // Report Model Schema
 model Report {
-  id          String       @id @default(uuid())
+  id          String @id @default(uuid())
   title       String
   description String
 
@@ -77,7 +77,7 @@ model Report {
   votes    Vote[]
 
   validationResult ValidationResult?
-  
+
   // VOTING COUNTERS
   votesCount     Int @default(0) // Net Score (Upvotes - Downvotes)
   upvotesCount   Int @default(0) // Total "Confirmations"
@@ -95,15 +95,18 @@ model Report {
 // Resources Model
 model Resource {
   id          String  @id @default(uuid())
-  category    String  // e.g., "Food", "Water", "Medicine", "Clothing"
-  itemName    String  // e.g., "Mineral Water 1L", "First Aid Kit"
-  quantity    Int     @default(0)
-  unit        String  // e.g., "bottles", "kg", "boxes", "units"
+  category    String // e.g., "Food", "Water", "Medicine", "Clothing"
+  itemName    String // e.g., "Mineral Water 1L", "First Aid Kit"
+  quantity    Int     @default(0) // Current available stock in warehouse
+  unit        String // e.g., "bottles", "kg", "boxes", "units"
   description String? // e.g., "Available for immediate pickup"
 
   // Relationship fields
   owner   User   @relation(fields: [ownerId], references: [id])
   ownerId String
+
+  // Outbound fulfillment history line items
+  dispatches DispatchLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -112,17 +115,32 @@ model Resource {
   @@index([category])
 }
 
+// DispatchLog Model
+model DispatchLog {
+  id String @id @default(uuid())
+
+  // Connects strictly to the target inventory asset item
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  quantitySent Int // Amount dispatched by the NGO operator
+  dispatchedTo String // The destination location, camp name, or contact person
+  dispatchedAt DateTime @default(now())
+
+  @@index([resourceId])
+}
+
 // Conditions Model
 model Condition {
-  id               String   @id @default(uuid())
-  title            String   @unique  // e.g., "Drowning", "Choking"
-  description      String?  @db.Text
-  recoveryPosition String?  @db.Text
-  steps            String   @db.Text // Store steps as a long string or JSON
-  precautions      String?  @db.Text
+  id               String  @id @default(uuid())
+  title            String  @unique // e.g., "Drowning", "Choking"
+  description      String? @db.Text
+  recoveryPosition String? @db.Text
+  steps            String  @db.Text // Store steps as a long string or JSON
+  precautions      String? @db.Text
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Notification Schema
@@ -196,15 +214,15 @@ model Vote {
 
 // Firebase Token Model
 model FcmToken {
-  id         String   @id @default(uuid())
-  token      String   @unique // The unique string from Firebase
-  deviceType String?          // e.g., "web", "android", "ios"
-  
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String  @id @default(uuid())
+  token      String  @unique // The unique string from Firebase
+  deviceType String? // e.g., "web", "android", "ios"
 
-  lastUsed   DateTime @default(now()) @updatedAt
-  createdAt  DateTime @default(now())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastUsed  DateTime @default(now()) @updatedAt
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([token])

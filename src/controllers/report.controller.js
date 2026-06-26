@@ -351,7 +351,102 @@ const deleteResource = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "Resource removed from inventory"));
 });
 
-// 10. Toggle Vote
+// 10. Outbound Dispatch Shipment Execution (Deduct Stock & Log Output)
+const dispatchResource = asyncHandler(async (req, res) => {
+    if (req.user.role !== "NGO") {
+        throw new ApiError(403, "Access denied. Only NGOs can dispatch supplies.");
+    }
+
+    const { resourceId, quantitySent, dispatchedTo } = req.body;
+
+    // Strict validation check
+    if (!resourceId || !quantitySent || !dispatchedTo) {
+        throw new ApiError(400, "Resource ID, Quantity Sent, and Destination parameters are required.");
+    }
+
+    const parseQty = parseInt(quantitySent);
+    if (isNaN(parseQty) || parseQty <= 0) {
+        throw new ApiError(400, "Dispatch quantity must be a valid positive integer number.");
+    }
+
+    // Execute inside an isolated transaction boundary to preserve stock balances safely
+    const dispatchTransactionResult = await prisma.$transaction(async (tx) => {
+        // Step A: Fetch base row to check availability and verify owner identity
+        const existingResource = await tx.resource.findUnique({
+            where: { id: resourceId }
+        });
+
+        if (!existingResource) {
+            throw new ApiError(404, "Target resource asset not found in database registry.");
+        }
+
+        if (existingResource.ownerId !== req.user.id) {
+            throw new ApiError(403, "Permission Denied. You do not own this warehouse inventory row.");
+        }
+
+        // Step B: Business Rule validation check
+        if (existingResource.quantity < parseQty) {
+            throw new ApiError(400, `Insufficient stock quantities. Allocation request failed. Available balance: ${existingResource.quantity} ${existingResource.unit}`);
+        }
+
+        // Step C: Update current warehouse inventory count balance
+        const updatedResource = await tx.resource.update({
+            where: { id: resourceId },
+            data: {
+                quantity: existingResource.quantity - parseQty
+            }
+        });
+
+        // Step D: Append a permanent entry row inside the DispatchLog model history block
+        const dispatchRecord = await tx.dispatchLog.create({
+            data: {
+                resourceId,
+                quantitySent: parseQty,
+                dispatchedTo
+            }
+        });
+
+        return { updatedResource, dispatchRecord };
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, dispatchTransactionResult, "Resource supplies dispatched and logged successfully"));
+});
+
+// 11. Retrieve Complete Dispatch History Log (Filter by specific NGO Identity)
+const getMyDispatchHistory = asyncHandler(async (req, res) => {
+    if (req.user.role !== "NGO") {
+        throw new ApiError(403, "Access denied.");
+    }
+
+    // Pull dispatch rows where the child resource belongs exclusively to the logged-in NGO user
+    const auditLogs = await prisma.dispatchLog.findMany({
+        where: {
+            resource: {
+                ownerId: req.user.id
+            }
+        },
+        include: {
+            resource: {
+                select: {
+                    itemName: true,
+                    category: true,
+                    unit: true
+                }
+            }
+        },
+        orderBy: {
+            dispatchedAt: "desc" // Latest shipments render at the top
+        }
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, auditLogs, "NGO outbound shipment history logs retrieved successfully"));
+});
+
+// 12. Toggle Vote
 const toggleVote = asyncHandler(async (req, res) => {
     const { reportId } = req.params;
     const { value } = req.body; // 1 for Upvote, -1 for Downvote
@@ -443,5 +538,5 @@ const toggleVote = asyncHandler(async (req, res) => {
 });
 
 export {
-    createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, updateResource, deleteResource, toggleVote
+    createReport, updateReport, deleteReport, getReports, getAllReports, addResource, getMyResources, updateResource, deleteResource, toggleVote, getMyDispatchHistory, dispatchResource
 };
