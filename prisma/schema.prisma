@@ -132,11 +132,14 @@ model DispatchLog {
 
 // Conditions Model
 model Condition {
-  id               String  @id @default(uuid())
-  title            String  @unique // e.g., "Drowning", "Choking"
-  description      String? @db.Text
+  id String @id @default(uuid())
+
+  title       String   @unique
+  description String?  @db.Text
+  keywords    String[] // PostgreSQL text[]
+
   recoveryPosition String? @db.Text
-  steps            String  @db.Text // Store steps as a long string or JSON
+  steps            String  @db.Text
   precautions      String? @db.Text
 
   createdAt DateTime @default(now())

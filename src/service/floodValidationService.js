@@ -16,7 +16,7 @@ export const validateFloodReport = async (reportId) => {
 
     let score = 0;
     let weatherMatch = false;
-    let socialMatch = false; 
+    let socialMatch = false;
 
     const up = report.upvotesCount || 0;
     const down = report.downvotesCount || 0;
@@ -25,7 +25,7 @@ export const validateFloodReport = async (reportId) => {
 
     // --- BRANCH: FLOOD LOGIC ---
     if (report.type === "FLOOD") {
-      
+
       // 1. Weather Data Match (50% Max Weights) with HTTP 429 Resilience Fallback
       try {
         const reportDate = new Date(report.createdAt);
@@ -39,7 +39,7 @@ export const validateFloodReport = async (reportId) => {
         // Timezone-Safe Formatting to preserve the true calendar day in PKT (Asia/Karachi)
         const formatOptions = { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Karachi' };
         const formatter = new Intl.DateTimeFormat('en-CA', formatOptions); // Outputs natively as YYYY-MM-DD
-        
+
         const startStr = formatter.format(startDate);
         const endStr = formatter.format(endDate);
 
@@ -62,17 +62,17 @@ export const validateFloodReport = async (reportId) => {
         // If any measurable rain (> 0 mm) is detected, grant the 50 points
         if (totalRain > 0) {
           score += 50;
-          weatherMatch = true; 
+          weatherMatch = true;
         }
       } catch (err) {
         console.error("==================================================");
         console.error("[WEATHER API RESILIENCE TRIGGERED]:", err.message);
-        
+
         // --- ACADEMIC PRESENTATION SAFE FALLBACK ---
         // If the API cuts you off (429 Rate Limit Exceeded), inject mock rainfall data so your project works seamlessly live
         if (err.response?.status === 429 || err.message.includes("429")) {
           console.warn("[⚠️ SAFE FALLBACK]: API limit exceeded. Injecting presentation fallback rain parameters (1.5mm).");
-          
+
           score += 50;         // Award the 50% weather weight contribution
           weatherMatch = true; // Turn the frontend indicator green
         } else {
@@ -85,7 +85,7 @@ export const validateFloodReport = async (reportId) => {
       const nearby = await prisma.report.count({
         where: {
           type: "FLOOD",
-          id: { not: reportId }, 
+          id: { not: reportId },
           createdAt: {
             gte: new Date(new Date(report.createdAt).getTime() - 24 * 60 * 60 * 1000),
             lte: new Date(new Date(report.createdAt).getTime() + 24 * 60 * 60 * 1000)
@@ -98,26 +98,28 @@ export const validateFloodReport = async (reportId) => {
       // Strict Validation: Only award points if actual nearby reports exist in the sector
       if (nearby >= 1) {
         score += 25;
-        socialMatch = true; 
+        socialMatch = true;
       } else {
         score += 0;
       }
 
       // 3. Community Voting (25% Max Weights)
       if (totalVotes >= 1) {
-        score += 25;
+        // If consensus is 100% upvotes, add 25 points. If it's mixed, add a proportional fraction.
+        // If upvotes are 0 (only downvotes), consensusRate is 0, so 0 points are added.
+        score += Math.round(consensusRate * 25);
       }
     }
-    
+
     // --- BRANCH: EARTHQUAKE LOGIC (Vote-Dominant) ---
     else if (report.type === "EARTHQUAKE") {
       if (totalVotes >= 1) {
-        if (consensusRate >= 0.9) score = 100;      
-        else if (consensusRate >= 0.7) score = 80;  
-        else if (consensusRate >= 0.5) score = 50;  
-        else score = 10;                            
+        if (consensusRate >= 0.9) score = 100;
+        else if (consensusRate >= 0.7) score = 80;
+        else if (consensusRate >= 0.5) score = 50;
+        else score = 10;
       } else {
-        score = 40; 
+        score = 40;
       }
     }
 
@@ -137,18 +139,18 @@ export const validateFloodReport = async (reportId) => {
     await prisma.$transaction([
       prisma.validationResult.upsert({
         where: { reportId },
-        update: { 
-          confidenceScore: score, 
-          decision: finalDecision, 
-          weatherMatch: weatherMatch, 
-          newsMatch: socialMatch 
+        update: {
+          confidenceScore: score,
+          decision: finalDecision,
+          weatherMatch: weatherMatch,
+          newsMatch: socialMatch
         },
-        create: { 
-          reportId, 
-          confidenceScore: score, 
-          decision: finalDecision, 
-          weatherMatch: weatherMatch, 
-          newsMatch: socialMatch 
+        create: {
+          reportId,
+          confidenceScore: score,
+          decision: finalDecision,
+          weatherMatch: weatherMatch,
+          newsMatch: socialMatch
         }
       }),
       prisma.report.update({
