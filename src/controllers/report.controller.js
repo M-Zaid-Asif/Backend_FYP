@@ -59,7 +59,7 @@ const createReport = asyncHandler(async (req, res) => {
     });
 
     // Calling broadcastAlert Function
-    broadcastAlert(report, type);
+    // broadcastAlert(report, type);
 
     // Trigger Background Validation
     const typeUpper = type?.toString().toUpperCase() || "";

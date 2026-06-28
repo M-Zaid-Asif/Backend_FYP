@@ -7,7 +7,7 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { sendEmail } from "../utils/sendEmail.js";
 
-// Generating Access and Refresh Token
+// 1. Generating Access and Refresh Token
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
 
@@ -48,7 +48,7 @@ const generateAccessAndRefreshTokens = async (userId) => {
   }
 };
 
-// Reset Password Request
+// 2. Reset Password Request
 const requestPasswordReset = asyncHandler(async (req, res) => {
     const { email } = req.body;
 
@@ -115,7 +115,7 @@ const requestPasswordReset = asyncHandler(async (req, res) => {
     }
 });
 
-// Reset Password Controller
+// 3. Reset Password Controller
 const resetPassword = asyncHandler(async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
@@ -159,7 +159,7 @@ const resetPassword = asyncHandler(async (req, res) => {
     );
 });
 
-// Get Current User
+// 4. Get Current User
 const getCurrentUser = asyncHandler(async (req, res) => {
   
   // Fetch user from DB using ID from the auth middleware
@@ -185,7 +185,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "User profile fetched successfully"));
 });
 
-// Register User
+// 5. Register User
 const registerUser = asyncHandler(async (req, res) => {
   
   // Get user details from frontend
@@ -259,7 +259,7 @@ const registerUser = asyncHandler(async (req, res) => {
   );
 });
 
-// Log In User
+// 6. Log In User
 const loginUser = asyncHandler(async (req, res) => {
   
   // Get data from req body (Added fcmToken and deviceType)
@@ -331,7 +331,7 @@ const loginUser = asyncHandler(async (req, res) => {
     );
 });
 
-// Logout User
+// 7. Logout User
 const logoutUser = asyncHandler(async (req, res) => {
  
   // Update user in DB to remove the refresh token
@@ -356,7 +356,7 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "User logged out successfully"));
 });
 
-// Update Account Details
+// 8. Update Account Details
 const updateAccountDetails = asyncHandler(async (req, res) => {
   const { name, email, number, password } = req.body;
 
@@ -436,7 +436,7 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, updatedUser, "Account details updated successfully"));
 });
 
-// Delete Account
+// 9. Delete Account
 const deleteAccount = asyncHandler(async (req, res) => {
   
   // Identify the user
@@ -471,7 +471,7 @@ const deleteAccount = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "Account deleted successfully"));
 });
 
-// Refresh Token
+// 10. Refresh Token
 const refreshAccessToken = asyncHandler(async (req, res) => {
   // Get the refresh token from cookies
   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
@@ -527,7 +527,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
-// FCM Token Update
+// 11. FCM Token Update
 const updateFcmToken = asyncHandler(async (req, res) => {
     const { fcmToken, deviceType } = req.body;
 

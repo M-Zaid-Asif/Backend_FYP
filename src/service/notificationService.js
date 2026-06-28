@@ -20,7 +20,7 @@ export const sendDisasterAlert = async (token, title, message) => {
         return response;
     } catch (error) {
 
-        // If the token is invalid or expired, we will handle it here.
+        // If the token is invalid or expired, it will send errro.
         console.error("FCM Delivery Error:", error.message);
         return null;
     }

@@ -1,5 +1,6 @@
 import prisma from "../constants/prisma.js";
 import axios from "axios";
+import { sendDisasterAlert } from "./notificationService.js";
 
 const isWithinRange = (lat1, lon1, lat2, lon2, km) => {
   const range = km / 111;
@@ -9,7 +10,8 @@ const isWithinRange = (lat1, lon1, lat2, lon2, km) => {
 export const validateFloodReport = async (reportId) => {
   try {
     const report = await prisma.report.findUnique({
-      where: { id: reportId }
+      where: { id: reportId },
+      include: { user: { select: { name: true } } }
     });
 
     if (!report) return;
@@ -23,7 +25,7 @@ export const validateFloodReport = async (reportId) => {
     const totalVotes = up + down;
     const consensusRate = totalVotes > 0 ? up / totalVotes : 0;
 
-    // --- BRANCH: FLOOD LOGIC ---
+    // FLOOD LOGIC
     if (report.type === "FLOOD") {
 
       // 1. Weather Data Match (50% Max Weights) with HTTP 429 Resilience Fallback
@@ -65,20 +67,17 @@ export const validateFloodReport = async (reportId) => {
           weatherMatch = true;
         }
       } catch (err) {
-        console.error("==================================================");
         console.error("[WEATHER API RESILIENCE TRIGGERED]:", err.message);
 
-        // --- ACADEMIC PRESENTATION SAFE FALLBACK ---
-        // If the API cuts you off (429 Rate Limit Exceeded), inject mock rainfall data so your project works seamlessly live
+        // If the API Free Quote is Finished we will inject mock data to check app working.
         if (err.response?.status === 429 || err.message.includes("429")) {
-          console.warn("[⚠️ SAFE FALLBACK]: API limit exceeded. Injecting presentation fallback rain parameters (1.5mm).");
+          console.warn("API limit exceeded. Injecting presentation fallback rain parameters.");
 
           score += 50;         // Award the 50% weather weight contribution
-          weatherMatch = true; // Turn the frontend indicator green
+          weatherMatch = true;
         } else {
           console.error("[CRITICAL]: Non-429 connection failure encountered.");
         }
-        console.error("==================================================");
       }
 
       // 2. Social Proof (25% Max Weights)
@@ -111,7 +110,7 @@ export const validateFloodReport = async (reportId) => {
       }
     }
 
-    // --- BRANCH: EARTHQUAKE LOGIC (Vote-Dominant) ---
+    // EARTHQUAKE LOGIC (Vote-Dominant)
     else if (report.type === "EARTHQUAKE") {
       if (totalVotes >= 1) {
         if (consensusRate >= 0.9) score = 100;
@@ -135,7 +134,7 @@ export const validateFloodReport = async (reportId) => {
       finalStatus = "REJECTED";
     }
 
-    // --- TRANSACTION BOUNDARY ---
+    // TRANSACTION BOUNDARY
     await prisma.$transaction([
       prisma.validationResult.upsert({
         where: { reportId },
@@ -159,7 +158,31 @@ export const validateFloodReport = async (reportId) => {
       })
     ]);
 
+    if (score > 90) {
+      // console.log(`CRITICAL DISASTER BROADCAST: Score is ${score}%. Triggering FCM broadcast...`);
+
+      // Pull all live device tokens across the platform
+      const allTokens = await prisma.fcmToken.findMany({
+        select: { token: true }
+      });
+
+      if (allTokens.length > 0) {
+        const alertTitle = `🚨 CRITICAL ALERT: ${report.type}`;
+        const alertBody = `${report.user?.name || "A citizen"} reported a verified ${report.type} at ${report.locationName || "Unknown Location"}.`;
+
+        // Map and execute notification deliveries in parallel
+        const alertPromises = allTokens.map(t =>
+          sendDisasterAlert(t.token, alertTitle, alertBody)
+        );
+        await Promise.all(alertPromises);
+        // console.log(`BROADCAST COMPLETE: Dispatched to ${allTokens.length} active device nodes.`);
+      }
+    } else {
+      // console.log(`ALERT FILTERED: Score is ${score}%. Minimum threshold of 90% not met. Skipping alert broadcast.`);
+    }
+
   } catch (error) {
     console.error("Validation logic failed:", error);
   }
+
 };

@@ -17,7 +17,7 @@ export const sendEmail = async (options) => {
         }
     ];
 
-    // Executing the send method using promises natively expected by your wrapper
+    // Executing the send method
     await client.send({
         from: sender,
         to: recipients,
